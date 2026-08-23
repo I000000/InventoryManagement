@@ -1,0 +1,148 @@
+networks:
+  app-network:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ims_postgres
+    environment:
+      POSTGRES_USER: inventory
+      POSTGRES_PASSWORD: inventory
+      POSTGRES_DB: inventory
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./backend/internal/repository/postgres/migrations:/docker-entrypoint-initdb.d
+      - ims_pg_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ims_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ims_redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:22.3.3.44-alpine
+    container_name: ims_clickhouse
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: inventory
+      CLICKHOUSE_PASSWORD: inventory
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./backend/internal/repository/clickhouse/migrations:/docker-entrypoint-initdb.d
+      - ims_ch_data:/var/lib/clickhouse
+    networks:
+      - app-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: ims_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - app-network
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    container_name: ims_kafka
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_BROKER_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  inventory-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: ims_api
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=inventory
+      - DB_PASS=inventory
+      - DB_NAME=inventory
+      - REDIS_HOST=redis:6379
+      - REDIS_PASSWORD=
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=stock-events
+      - LOG_LEVEL=debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: on-failure
+
+  stock-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: ims_worker
+    environment:
+      - CLICKHOUSE_HOST=clickhouse:9000
+      - CLICKHOUSE_USER=inventory
+      - CLICKHOUSE_PASS=inventory
+      - CLICKHOUSE_DB=analytics
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=stock-events
+      - KAFKA_GROUP=stock-worker-group
+      - REDIS_HOST=redis:6379
+      - REDIS_PASSWORD=
+      - LOG_LEVEL=debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
+volumes:
+  ims_pg_data:
+  ims_redis_data:
+  ims_ch_data:
