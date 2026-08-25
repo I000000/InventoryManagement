@@ -2,36 +2,45 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 type reserveService struct {
 	stockRepo StockRepository
 	redis     *redis.Client
-	// Kafka producer добавить позже
+	producer  EventProducer
+	logger    *zap.Logger
 }
 
-// NewReserveService — конструктор, возвращает интерфейс
-func NewReserveService(stockRepo StockRepository, redisClient *redis.Client) ReserveService {
+func NewReserveService(
+	stockRepo StockRepository,
+	redis *redis.Client,
+	producer EventProducer,
+	logger *zap.Logger,
+) ReserveService {
 	return &reserveService{
 		stockRepo: stockRepo,
-		redis:     redisClient,
+		redis:     redis,
+		producer:  producer,
+		logger:    logger,
 	}
 }
 
 func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
-	// 1. Проверка идемпотентности через Redis
+	// 1. Идемпотентность
 	idempotencyKey := "idempotent:" + req.RequestID
 	exists, err := s.redis.Exists(ctx, idempotencyKey).Result()
 	if err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("redis check failed: %w", err)
+		return domain.ReserveResponse{}, fmt.Errorf("redis check: %w", err)
 	}
 	if exists > 0 {
-		return domain.ReserveResponse{}, ErrDuplicateRequest
+		return domain.ReserveResponse{}, errors.New("duplicate request")
 	}
 
 	// 2. Вызов репозитория
@@ -41,13 +50,23 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 	}
 
 	// 3. Сохраняем ключ идемпотентности
-	if err := s.redis.Set(ctx, idempotencyKey, "1", 5*time.Minute).Err(); err != nil {
-		// Логируем ошибку, но не возвращаем её (резерв уже сделан)
-		// log.Warn("failed to set idempotency key", err)
-	}
+	s.redis.Set(ctx, idempotencyKey, "1", 5*time.Minute)
 
-	// 4. Отправка события в Kafka (асинхронно, пока заглушка)
-	// go s.publishEvent(ctx, domain.StockReservedEvent{...})
+	// 4. Асинхронная отправка в Kafka
+	event := domain.StockReservedEvent{
+		ProductID: req.ProductID,
+		Quantity:  req.Quantity,
+		RequestID: req.RequestID,
+		Timestamp: time.Now().Unix(),
+	}
+	go func() {
+		if err := s.producer.SendStockReservedEvent(context.Background(), event); err != nil {
+			s.logger.Error("failed to send Kafka event",
+				zap.String("product_id", req.ProductID),
+				zap.Error(err),
+			)
+		}
+	}()
 
 	return resp, nil
 }

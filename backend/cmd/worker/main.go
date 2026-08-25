@@ -2,56 +2,73 @@ package main
 
 import (
 	"context"
-	"log"
-	"time"
-
-	ch "github.com/ClickHouse/clickhouse-go/v2"
+	"database/sql"
+	"fmt"
+	"os/signal"
+	"syscall"
 
 	"github.com/I000000/InventoryManagement/internal/config"
+	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/kafka"
+	"github.com/I000000/InventoryManagement/internal/migrate"
+	"github.com/I000000/InventoryManagement/internal/repository/clickhouse"
+	"go.uber.org/zap"
+
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 )
 
 func main() {
 	cfg := config.Load()
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
 
-	log.Println("Starting stock worker...")
-	log.Printf("Configuration:")
-	log.Printf("  - ClickHouse: %s", cfg.CHHost)
-	log.Printf("  - ClickHouse DB: %s", cfg.CHDB)
-	log.Printf("  - Kafka Brokers: %s", cfg.KafkaBrokers)
-	log.Printf("  - Kafka Topic: %s", cfg.KafkaTopic)
+	logger.Info("Starting stock worker",
+		zap.String("clickhouse", cfg.CHHost),
+		zap.String("kafka", cfg.KafkaBrokers),
+	)
 
-	// --- Подключение к ClickHouse ---
-	chConn, err := ch.Open(&ch.Options{
-		Addr: []string{cfg.CHHost},
-		Auth: ch.Auth{
-			Database: cfg.CHDB,
-			Username: cfg.CHUser,
-			Password: cfg.CHPass,
-		},
-		DialTimeout: 5 * time.Second,
-	})
+	// --- ClickHouse ---
+	chConnStr := fmt.Sprintf("clickhouse://%s:%s@%s/%s",
+		cfg.CHUser, cfg.CHPass, cfg.CHHost, cfg.CHDB)
+	chDB, err := sql.Open("clickhouse", chConnStr)
 	if err != nil {
-		log.Printf("ClickHouse connection failed: %v", err)
-	} else {
-		defer chConn.Close()
+		logger.Fatal("ClickHouse open failed", zap.Error(err))
+	}
+	defer chDB.Close()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
+	if err := migrate.ApplyClickHouseMigrations(chDB); err != nil {
+		logger.Fatal("ClickHouse migrations failed", zap.Error(err))
+	}
+	logger.Info("ClickHouse migrations applied")
 
-		if err := chConn.Ping(ctx); err != nil {
-			log.Printf("ClickHouse ping failed: %v", err)
-		} else {
-			log.Println("Connected to ClickHouse successfully")
-		}
+	chRepo := clickhouse.NewEventRepository(chDB)
+
+	// --- Kafka consumer ---
+	consumer, err := kafka.NewConsumer(
+		[]string{cfg.KafkaBrokers},
+		cfg.KafkaGroup,
+		cfg.KafkaTopic,
+		logger,
+	)
+	if err != nil {
+		logger.Fatal("Kafka consumer creation failed", zap.Error(err))
+	}
+	defer consumer.Close()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	handler := func(ctx context.Context, event domain.StockReservedEvent) error {
+		logger.Info("Received event from Kafka",
+			zap.String("product_id", event.ProductID),
+			zap.Int("quantity", event.Quantity),
+			zap.String("request_id", event.RequestID),
+		)
+		return chRepo.InsertReservation(ctx, event)
 	}
 
-	log.Println("Worker is running in simulation mode...")
-	log.Println("Will process Kafka messages and write to ClickHouse")
+	logger.Info("Worker started, listening for messages...")
+	consumer.ConsumeWithRetry(ctx, handler)
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		log.Println("Worker is alive and waiting for messages...")
-	}
+	logger.Info("Worker shutting down gracefully")
 }

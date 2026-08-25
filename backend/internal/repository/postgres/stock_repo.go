@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/jmoiron/sqlx"
 )
@@ -15,7 +16,9 @@ type stockRepository struct {
 	db *sqlx.DB
 }
 
-// NewStockRepository возвращает реализацию service.StockRepository
+// Проверка, что реализация соответствует интерфейсу
+var _ service.StockRepository = (*stockRepository)(nil)
+
 func NewStockRepository(db *sqlx.DB) service.StockRepository {
 	return &stockRepository{db: db}
 }
@@ -33,13 +36,13 @@ func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveReque
 	err = tx.QueryRowContext(ctx, query, req.ProductID).Scan(&available)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ReserveResponse{}, service.ErrProductNotFound
+			return domain.ReserveResponse{}, repository.ErrProductNotFound
 		}
 		return domain.ReserveResponse{}, fmt.Errorf("select for update: %w", err)
 	}
 
 	if available < req.Quantity {
-		return domain.ReserveResponse{}, service.ErrNotEnoughStock
+		return domain.ReserveResponse{}, repository.ErrNotEnoughStock
 	}
 
 	_, err = tx.ExecContext(ctx,
@@ -72,7 +75,7 @@ func (r *stockRepository) GetAvailable(ctx context.Context, productID string) (i
 		productID).Scan(&available)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, service.ErrProductNotFound
+			return 0, repository.ErrProductNotFound
 		}
 		return 0, err
 	}
