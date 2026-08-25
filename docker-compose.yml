@@ -7,18 +7,17 @@ services:
     image: postgres:15-alpine
     container_name: ims_postgres
     environment:
-      POSTGRES_USER: inventory
-      POSTGRES_PASSWORD: inventory
-      POSTGRES_DB: inventory
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-inventory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-inventory}
+      POSTGRES_DB: ${POSTGRES_DB:-inventory}
+    # ports: - "5432:5432"  # Убираем, доступ только внутри сети
     volumes:
       - ./backend/internal/repository/postgres/migrations:/docker-entrypoint-initdb.d
       - ims_pg_data:/var/lib/postgresql/data
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U inventory"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-inventory}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,8 +25,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ims_redis
-    ports:
-      - "6379:6379"
+    # ports: - "6379:6379"
     volumes:
       - ims_redis_data:/data
     networks:
@@ -42,12 +40,12 @@ services:
     image: clickhouse/clickhouse-server:22.3.3.44-alpine
     container_name: ims_clickhouse
     environment:
-      CLICKHOUSE_DB: analytics
-      CLICKHOUSE_USER: inventory
-      CLICKHOUSE_PASSWORD: inventory
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-inventory}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-inventory}
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"  # Оставляем для отладки (можно убрать в production)
+      # - "9000:9000"  # Нативный протокол — убираем
     volumes:
       - ims_ch_data:/var/lib/clickhouse
     networks:
@@ -60,6 +58,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
     networks:
       - app-network
+    # ports: нет
 
   kafka:
     image: wurstmeister/kafka:latest
@@ -70,8 +69,7 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-    ports:
-      - "9092:9092"
+    # ports: - "9092:9092"  # Убираем
     depends_on:
       - zookeeper
     networks:
@@ -88,19 +86,24 @@ services:
       dockerfile: Dockerfile.api
     container_name: ims_api
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"  # Оставляем, т.к. это входная точка
     environment:
-      - APP_ENV=development
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=inventory
-      - DB_PASS=inventory
-      - DB_NAME=inventory
-      - REDIS_HOST=redis:6379
-      - REDIS_PASSWORD=
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC=stock-events
-      - LOG_LEVEL=debug
+      - APP_ENV=${APP_ENV:-development}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER:-inventory}
+      - DB_PASS=${DB_PASS:-inventory}
+      - DB_NAME=${DB_NAME:-inventory}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_MAX_CONNS=${DB_MAX_CONNS:-10}
+      - REDIS_HOST=${REDIS_HOST:-redis:6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-0}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-stock-events}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SERVER_PORT=${SERVER_PORT:-8080}
+      - IDEMPOTENCY_TTL=${IDEMPOTENCY_TTL:-5m}
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,16 +121,16 @@ services:
       dockerfile: Dockerfile.worker
     container_name: ims_worker
     environment:
-      - CLICKHOUSE_HOST=clickhouse:9000
-      - CLICKHOUSE_USER=inventory
-      - CLICKHOUSE_PASS=inventory
-      - CLICKHOUSE_DB=analytics
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC=stock-events
-      - KAFKA_GROUP=stock-worker-group
-      - REDIS_HOST=redis:6379
-      - REDIS_PASSWORD=
-      - LOG_LEVEL=debug
+      - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-clickhouse:9000}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-inventory}
+      - CLICKHOUSE_PASS=${CLICKHOUSE_PASS:-inventory}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-analytics}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-stock-events}
+      - KAFKA_GROUP=${KAFKA_GROUP:-stock-worker-group}
+      - REDIS_HOST=${REDIS_HOST:-redis:6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
