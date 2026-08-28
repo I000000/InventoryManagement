@@ -43,5 +43,13 @@ restart: down up ## Перезапустить все сервисы
 clean: down ## Остановить и удалить контейнеры (volume'ы сохраняются)
 	$(DOCKER_COMPOSE) rm -f
 
+.PHONY: clean-all
+clean-all: down ## Остановить всё и удалить volumes
+	$(DOCKER_COMPOSE) --profile loadtest down -v
+
 .PHONY: start
 start: up migrate ## Запустить всё и накатить миграции
+
+.PHONY: loadtest
+loadtest: ## Запустить нагрузочный тест (k6) — система уже должна быть запущена
+	$(DOCKER_COMPOSE) --profile loadtest up k6

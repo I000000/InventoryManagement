@@ -11,16 +11,16 @@ CREATE TABLE IF NOT EXISTS stocks (
 CREATE INDEX IF NOT EXISTS idx_stocks_product_id ON stocks(product_id);
 
 INSERT INTO stocks (product_id, total_count) VALUES 
-    ('iphone_15_pro', 10),
-    ('iphone_15', 5),
-    ('samsung_s24_ultra', 8),
-    ('samsung_s24', 12),
-    ('sony_wh1000xm5', 3),
-    ('apple_watch_series9', 7),
-    ('macbook_air_m2', 4),
-    ('macbook_pro_m3', 2),
-    ('ipad_pro_12_9', 6),
-    ('airpods_pro_2', 15)
+    ('iphone_15_pro', 1000000),
+    ('iphone_15', 50000000),
+    ('samsung_s24_ultra', 800000),
+    ('samsung_s24', 1200000),
+    ('sony_wh1000xm5', 300000),
+    ('apple_watch_series9', 700000),
+    ('macbook_air_m2', 400000),
+    ('macbook_pro_m3', 200000),
+    ('ipad_pro_12_9', 600000),
+    ('airpods_pro_2', 1500000)
 ON CONFLICT (product_id) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()

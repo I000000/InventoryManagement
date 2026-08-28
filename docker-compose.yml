@@ -170,6 +170,23 @@ services:
       - app-network
     restart: "no"
 
+  k6:
+    build:
+      context: ./backend/tests/k6
+      dockerfile: Dockerfile
+    container_name: ims_k6
+    environment:
+      - K6_BASE_URL=http://inventory-api:8080
+      - K6_PRODUCT=iphone_15
+    depends_on:
+      inventory-api:
+        condition: service_started
+    networks:
+      - app-network
+    restart: "no"
+    profiles:
+      - loadtest
+
 volumes:
   ims_pg_data:
   ims_redis_data:
