@@ -37,7 +37,7 @@ func NewConsumer(brokers []string, groupID string, topic string, logger *zap.Log
 }
 
 // ConsumeWithRetry запускает потребление с бесконечными ретраями при ошибках
-func (c *Consumer) ConsumeWithRetry(ctx context.Context, handler func(ctx context.Context, event domain.StockReservedEvent) error) {
+func (c *Consumer) ConsumeWithRetry(ctx context.Context, handler func(ctx context.Context, event domain.StockReservedEvent) error) error {
 	c.handler = handler
 	retryDelay := 3 * time.Second
 	maxDelay := 30 * time.Second
@@ -45,7 +45,7 @@ func (c *Consumer) ConsumeWithRetry(ctx context.Context, handler func(ctx contex
 	for {
 		if ctx.Err() != nil {
 			c.logger.Info("context cancelled, stopping consumer")
-			return
+			return ctx.Err()
 		}
 
 		err := c.consumer.Consume(ctx, []string{c.topic}, c)
@@ -54,7 +54,11 @@ func (c *Consumer) ConsumeWithRetry(ctx context.Context, handler func(ctx contex
 				zap.Error(err),
 				zap.Duration("retry_delay", retryDelay),
 			)
-			time.Sleep(retryDelay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelay):
+			}
 			if retryDelay < maxDelay {
 				retryDelay *= 2
 			}

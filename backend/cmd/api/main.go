@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +26,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// --- Logger ---
+	// --- Логгер ---
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
@@ -39,13 +42,11 @@ func main() {
 	}
 	defer db.Close()
 
-	// Настройка пула соединений PostgreSQL
 	db.SetMaxOpenConns(cfg.DBMaxConns)
 	db.SetMaxIdleConns(cfg.DBMaxConns / 2)
 	db.SetConnMaxLifetime(30 * time.Minute)
 	db.SetConnMaxIdleTime(5 * time.Minute)
-
-	logger.Info("PostgreSQL connected with connection pool configured")
+	logger.Info("PostgreSQL connected with connection pool")
 
 	// --- Redis ---
 	rdb := redis.NewClient(&redis.Options{
@@ -53,13 +54,15 @@ func main() {
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	})
+	defer rdb.Close()
+
 	if _, err := rdb.Ping(context.Background()).Result(); err != nil {
 		logger.Warn("Redis ping failed", zap.Error(err))
 	} else {
 		logger.Info("Redis connected")
 	}
 
-	// --- Kafka Producer с no‑op заглушкой ---
+	// --- Kafka Producer ---
 	var producer service.EventProducer
 	if cfg.KafkaBrokers != "" {
 		var err error
@@ -99,10 +102,31 @@ func main() {
 	})
 	r.POST("/api/v1/reserve", reserveHandler.Reserve)
 
-	// --- Запуск ---
-	addr := ":" + cfg.ServerPort
-	logger.Info(fmt.Sprintf("Starting API on %s", addr))
-	if err := r.Run(addr); err != nil {
-		logger.Fatal("Server failed", zap.Error(err))
+	// --- HTTP Server ---
+	srv := &http.Server{
+		Addr:    ":" + cfg.ServerPort,
+		Handler: r,
 	}
+
+	go func() {
+		logger.Info("Starting API server", zap.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Server failed", zap.Error(err))
+		}
+	}()
+
+	// --- Graceful shutdown ---
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logger.Info("Shutting down API server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Fatal("Server forced to shutdown", zap.Error(err))
+	}
+
+	logger.Info("API server exited")
 }

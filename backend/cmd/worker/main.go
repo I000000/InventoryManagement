@@ -20,8 +20,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// --- Logger ---
-
+	// --- Логгер ---
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
@@ -39,13 +38,12 @@ func main() {
 	}
 	defer chDB.Close()
 
-	// Настройка пула соединений ClickHouse
 	chDB.SetMaxOpenConns(10)
 	chDB.SetMaxIdleConns(5)
 	chDB.SetConnMaxLifetime(30 * time.Minute)
 	chDB.SetConnMaxIdleTime(5 * time.Minute)
 
-	logger.Info("ClickHouse connected, migrations must be applied manually")
+	logger.Info("ClickHouse connected")
 
 	chRepo := clickhouse.NewEventRepository(chDB)
 
@@ -61,6 +59,7 @@ func main() {
 	}
 	defer consumer.Close()
 
+	// --- Graceful shutdown ---
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -73,8 +72,27 @@ func main() {
 		return chRepo.InsertReservation(ctx, event)
 	}
 
-	logger.Info("Worker started, listening for messages...")
-	consumer.ConsumeWithRetry(ctx, handler)
+	// Запускаем потребление в горутине
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- consumer.ConsumeWithRetry(ctx, handler)
+	}()
 
-	logger.Info("Worker shutting down gracefully")
+	logger.Info("Worker started, listening for messages...")
+
+	// Ожидаем сигнал (контекст отменится при SIGINT/SIGTERM)
+	<-ctx.Done()
+	logger.Info("Received shutdown signal, stopping worker...")
+
+	// Закрываем consumer, чтобы прервать ConsumeWithRetry
+	if err := consumer.Close(); err != nil {
+		logger.Error("Error closing consumer", zap.Error(err))
+	}
+
+	// Дожидаемся завершения горутины
+	if err := <-errCh; err != nil && err != context.Canceled {
+		logger.Error("Consumer error after shutdown", zap.Error(err))
+	}
+
+	logger.Info("Worker shut down gracefully")
 }
