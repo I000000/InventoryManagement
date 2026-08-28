@@ -20,4 +20,5 @@ type StockRepository interface {
 // EventProducer — отправка событий (определён здесь, т.к. используется сервисом)
 type EventProducer interface {
 	SendStockReservedEvent(ctx context.Context, event domain.StockReservedEvent) error
+	Close() error
 }

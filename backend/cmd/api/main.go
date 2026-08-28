@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -22,7 +23,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// --- Логгер ---
+	// --- Logger ---
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
@@ -37,7 +38,14 @@ func main() {
 		logger.Fatal("PostgreSQL connection failed", zap.Error(err))
 	}
 	defer db.Close()
-	logger.Info("PostgreSQL connected")
+
+	// Настройка пула соединений PostgreSQL
+	db.SetMaxOpenConns(cfg.DBMaxConns)
+	db.SetMaxIdleConns(cfg.DBMaxConns / 2)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
+	logger.Info("PostgreSQL connected with connection pool configured")
 
 	// --- Redis ---
 	rdb := redis.NewClient(&redis.Options{
@@ -51,7 +59,7 @@ func main() {
 		logger.Info("Redis connected")
 	}
 
-	// --- Kafka Producer ---
+	// --- Kafka Producer с no‑op заглушкой ---
 	var producer service.EventProducer
 	if cfg.KafkaBrokers != "" {
 		var err error
@@ -61,18 +69,20 @@ func main() {
 			logger,
 		)
 		if err != nil {
-			logger.Error("Kafka producer creation failed", zap.Error(err))
+			logger.Warn("Kafka producer creation failed, using no-op producer", zap.Error(err))
+			producer = kafka.NewNoopProducer()
 		} else {
 			logger.Info("Kafka producer created")
-			defer func() {
-				if closer, ok := producer.(interface{ Close() error }); ok {
-					_ = closer.Close()
-				}
-			}()
 		}
 	} else {
-		logger.Warn("Kafka brokers not set, producer disabled")
+		logger.Warn("Kafka brokers not set, using no-op producer")
+		producer = kafka.NewNoopProducer()
 	}
+	defer func() {
+		if err := producer.Close(); err != nil {
+			logger.Error("failed to close Kafka producer", zap.Error(err))
+		}
+	}()
 
 	// --- DI ---
 	stockRepo := postgres.NewStockRepository(db)

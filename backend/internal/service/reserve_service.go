@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -33,26 +32,23 @@ func NewReserveService(
 }
 
 func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
-	// 1. Идемпотентность
+	// Идемпотентность
 	idempotencyKey := "idempotent:" + req.RequestID
-	exists, err := s.redis.Exists(ctx, idempotencyKey).Result()
+	ok, err := s.redis.SetNX(ctx, idempotencyKey, "1", 5*time.Minute).Result()
 	if err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("redis check: %w", err)
+		return domain.ReserveResponse{}, fmt.Errorf("redis setnx: %w", err)
 	}
-	if exists > 0 {
-		return domain.ReserveResponse{}, errors.New("duplicate request")
+	if !ok {
+		return domain.ReserveResponse{}, ErrDuplicateRequest
 	}
 
-	// 2. Вызов репозитория
+	// Вызов репозитория
 	resp, err := s.stockRepo.ReserveTx(ctx, req)
 	if err != nil {
 		return domain.ReserveResponse{}, err
 	}
 
-	// 3. Сохраняем ключ идемпотентности
-	s.redis.Set(ctx, idempotencyKey, "1", 5*time.Minute)
-
-	// 4. Асинхронная отправка в Kafka
+	// Асинхронная отправка в Kafka
 	event := domain.StockReservedEvent{
 		ProductID: req.ProductID,
 		Quantity:  req.Quantity,

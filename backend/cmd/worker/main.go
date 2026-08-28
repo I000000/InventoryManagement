@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/I000000/InventoryManagement/internal/config"
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/kafka"
-	"github.com/I000000/InventoryManagement/internal/migrate"
 	"github.com/I000000/InventoryManagement/internal/repository/clickhouse"
 	"go.uber.org/zap"
 
@@ -19,6 +19,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+
+	// --- Logger ---
+
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
@@ -36,10 +39,13 @@ func main() {
 	}
 	defer chDB.Close()
 
-	if err := migrate.ApplyClickHouseMigrations(chDB); err != nil {
-		logger.Fatal("ClickHouse migrations failed", zap.Error(err))
-	}
-	logger.Info("ClickHouse migrations applied")
+	// Настройка пула соединений ClickHouse
+	chDB.SetMaxOpenConns(10)
+	chDB.SetMaxIdleConns(5)
+	chDB.SetConnMaxLifetime(30 * time.Minute)
+	chDB.SetConnMaxIdleTime(5 * time.Minute)
+
+	logger.Info("ClickHouse connected, migrations must be applied manually")
 
 	chRepo := clickhouse.NewEventRepository(chDB)
 
