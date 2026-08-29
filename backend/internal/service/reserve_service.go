@@ -47,17 +47,27 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 	// Вызов репозитория
 	resp, err := s.stockRepo.ReserveTx(ctx, req)
 	if err != nil {
-		// Преобразуем ошибки репозитория в ошибки сервиса
 		switch {
 		case errors.Is(err, repository.ErrProductNotFound):
+			s.redis.Del(ctx, "stock:"+req.ProductID)
 			return domain.ReserveResponse{}, ErrProductNotFound
 		case errors.Is(err, repository.ErrNotEnoughStock):
+			s.redis.Del(ctx, "stock:"+req.ProductID)
 			return domain.ReserveResponse{}, ErrNotEnoughStock
 		case errors.Is(err, repository.ErrVersionConflict):
 			return domain.ReserveResponse{}, ErrVersionConflict
 		default:
 			return domain.ReserveResponse{}, err
 		}
+	}
+
+	// Обновление кеша после успешной транзакции
+	newAvailable, err := s.redis.DecrBy(ctx, "stock:"+req.ProductID, int64(req.Quantity)).Result()
+	if err != nil {
+		s.logger.Warn("failed to update stock cache", zap.String("product_id", req.ProductID), zap.Error(err))
+	} else {
+		s.redis.Expire(ctx, "stock:"+req.ProductID, 5*time.Minute)
+		s.logger.Debug("stock cache updated", zap.String("product_id", req.ProductID), zap.Int64("new_available", newAvailable))
 	}
 
 	// Асинхронная отправка в Kafka

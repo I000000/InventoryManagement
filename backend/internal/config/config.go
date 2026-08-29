@@ -37,6 +37,7 @@ type Config struct {
 	AppEnv         string
 	ServerPort     string
 	IdempotencyTTL time.Duration
+	StockCacheTTL  time.Duration
 }
 
 func Load() *Config {
@@ -66,6 +67,7 @@ func Load() *Config {
 		AppEnv:         getEnv("APP_ENV", "development"),
 		ServerPort:     getEnv("SERVER_PORT", "8080"),
 		IdempotencyTTL: getEnvAsDuration("IDEMPOTENCY_TTL", 5*time.Minute),
+		StockCacheTTL:  getEnvAsDuration("STOCK_CACHE_TTL", 5*time.Minute),
 	}
 }
 
