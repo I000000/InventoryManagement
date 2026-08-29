@@ -30,35 +30,37 @@ func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveReque
 	}
 	defer tx.Rollback()
 
-	var available int
-	query := `SELECT total_count - reserved_count AS available 
-              FROM stocks WHERE product_id = $1 FOR UPDATE`
-	err = tx.QueryRowContext(ctx, query, req.ProductID).Scan(&available)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ReserveResponse{}, repository.ErrProductNotFound
-		}
-		return domain.ReserveResponse{}, fmt.Errorf("select for update: %w", err)
-	}
-
-	if available < req.Quantity {
-		return domain.ReserveResponse{}, repository.ErrNotEnoughStock
-	}
-
-	_, err = tx.ExecContext(ctx,
+	result, err := tx.ExecContext(ctx,
 		`UPDATE stocks 
-         SET reserved_count = reserved_count + $1, 
-             version = version + 1,
-             updated_at = NOW()
-         WHERE product_id = $2`,
+		 SET reserved_count = reserved_count + $1, 
+		     version = version + 1,
+		     updated_at = NOW()
+		 WHERE product_id = $2 AND total_count - reserved_count >= $1`,
 		req.Quantity, req.ProductID,
 	)
 	if err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("update stocks: %w", err)
+		return domain.ReserveResponse{}, fmt.Errorf("update: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return domain.ReserveResponse{}, fmt.Errorf("rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		var exists bool
+		err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM stocks WHERE product_id=$1)", req.ProductID).Scan(&exists)
+		if err != nil {
+			return domain.ReserveResponse{}, fmt.Errorf("check exists: %w", err)
+		}
+		if !exists {
+			return domain.ReserveResponse{}, repository.ErrProductNotFound
+		}
+		return domain.ReserveResponse{}, repository.ErrNotEnoughStock
 	}
 
 	if err := tx.Commit(); err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("commit tx: %w", err)
+		return domain.ReserveResponse{}, fmt.Errorf("commit: %w", err)
 	}
 
 	return domain.ReserveResponse{

@@ -51,5 +51,6 @@ clean-all: down ## Остановить всё и удалить volumes
 start: up migrate ## Запустить всё и накатить миграции
 
 .PHONY: loadtest
-loadtest: ## Запустить нагрузочный тест (k6) — система уже должна быть запущена
+loadtest: ## Запустить нагрузочный тест (k6) – пересобирает образ
+	$(DOCKER_COMPOSE) --profile loadtest build k6
 	$(DOCKER_COMPOSE) --profile loadtest up k6

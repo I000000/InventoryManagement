@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -45,7 +47,17 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 	// Вызов репозитория
 	resp, err := s.stockRepo.ReserveTx(ctx, req)
 	if err != nil {
-		return domain.ReserveResponse{}, err
+		// Преобразуем ошибки репозитория в ошибки сервиса
+		switch {
+		case errors.Is(err, repository.ErrProductNotFound):
+			return domain.ReserveResponse{}, ErrProductNotFound
+		case errors.Is(err, repository.ErrNotEnoughStock):
+			return domain.ReserveResponse{}, ErrNotEnoughStock
+		case errors.Is(err, repository.ErrVersionConflict):
+			return domain.ReserveResponse{}, ErrVersionConflict
+		default:
+			return domain.ReserveResponse{}, err
+		}
 	}
 
 	// Асинхронная отправка в Kafka
