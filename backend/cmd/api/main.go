@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/I000000/InventoryManagement/internal/metrics"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
@@ -94,6 +96,8 @@ func main() {
 
 	// --- Gin ---
 	r := gin.Default()
+	r.Use(metrics.MetricsMiddleware())
+
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -101,6 +105,8 @@ func main() {
 		})
 	})
 	r.POST("/api/v1/reserve", reserveHandler.Reserve)
+
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// --- HTTP Server ---
 	srv := &http.Server{

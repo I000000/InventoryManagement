@@ -5,7 +5,6 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/migrate ./cmd/migrate
 
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates tzdata
-COPY --from=builder /app/migrate .
-CMD ["./migrate"]
+FROM scratch
+COPY --from=builder /app/migrate /migrate
+CMD ["/migrate"]

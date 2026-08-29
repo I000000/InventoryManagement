@@ -1,0 +1,57 @@
+{
+  "title": "Inventory Management System Metrics",
+  "panels": [
+    {
+      "title": "Requests per Second",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total[1m])",
+          "legendFormat": "RPS"
+        }
+      ],
+      "type": "graph"
+    },
+    {
+      "title": "Request Duration (p50, p90, p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "type": "graph"
+    },
+    {
+      "title": "Reservations by Status",
+      "targets": [
+        {
+          "expr": "sum by (status) (reservations_total)",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "type": "piechart"
+    },
+    {
+      "title": "Active Reservations",
+      "targets": [
+        {
+          "expr": "active_reservations",
+          "legendFormat": "active"
+        }
+      ],
+      "type": "stat"
+    }
+  ],
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  }
+}

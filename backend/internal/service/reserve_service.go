@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/I000000/InventoryManagement/internal/metrics"
+
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/redis/go-redis/v9"
@@ -34,6 +36,10 @@ func NewReserveService(
 }
 
 func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
+	// Увеличиваем счетчик активных резервирований
+	metrics.ActiveReservations.Inc()
+	defer metrics.ActiveReservations.Dec()
+
 	// Идемпотентность
 	idempotencyKey := "idempotent:" + req.RequestID
 	ok, err := s.redis.SetNX(ctx, idempotencyKey, "1", 5*time.Minute).Result()
@@ -60,6 +66,9 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 			return domain.ReserveResponse{}, err
 		}
 	}
+
+	// Успешное резервирование
+	metrics.ReservationsTotal.WithLabelValues(req.ProductID, "success").Inc()
 
 	// Обновление кеша после успешной транзакции
 	newAvailable, err := s.redis.DecrBy(ctx, "stock:"+req.ProductID, int64(req.Quantity)).Result()

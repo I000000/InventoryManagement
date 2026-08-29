@@ -48,9 +48,13 @@ clean-all: down ## Остановить всё и удалить volumes
 	$(DOCKER_COMPOSE) --profile loadtest down -v
 
 .PHONY: start
-start: up migrate ## Запустить всё и накатить миграции
+start: up migrate monitor ## Запустить всё (сервисы + мониторинг)
 
 .PHONY: loadtest
 loadtest: ## Запустить нагрузочный тест (k6) – пересобирает образ
 	$(DOCKER_COMPOSE) --profile loadtest build k6
 	$(DOCKER_COMPOSE) --profile loadtest up k6
+
+.PHONY: monitor
+monitor: ## Запустить Prometheus и Grafana
+	$(DOCKER_COMPOSE) up -d prometheus grafana
