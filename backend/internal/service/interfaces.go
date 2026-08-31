@@ -7,17 +7,23 @@ import (
 )
 
 // ReserveService — бизнес-логика резервирования
+//
+//go:generate mockery --name ReserveService --output ../mocks --outpkg mocks --case underscore
 type ReserveService interface {
 	Reserve(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error)
 }
 
 // StockRepository — интерфейс для работы с остатками (определён здесь, т.к. используется сервисом)
+//
+//go:generate mockery --name StockRepository --output ../mocks --outpkg mocks --case underscore
 type StockRepository interface {
 	ReserveTx(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error)
 	GetAvailable(ctx context.Context, productID string) (int, error)
 }
 
 // EventProducer — отправка событий (определён здесь, т.к. используется сервисом)
+//
+//go:generate mockery --name EventProducer --output ../mocks --outpkg mocks --case underscore
 type EventProducer interface {
 	SendStockReservedEvent(ctx context.Context, event domain.StockReservedEvent) error
 	Close() error
