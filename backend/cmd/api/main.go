@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// --- PostgreSQL ---
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",

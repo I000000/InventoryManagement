@@ -22,7 +22,7 @@ func main() {
 
 	// --- Логгер ---
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	logger.Info("Starting stock worker",
 		zap.String("clickhouse", cfg.CHHost),

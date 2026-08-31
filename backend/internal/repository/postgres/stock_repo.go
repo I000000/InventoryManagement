@@ -28,7 +28,7 @@ func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveReque
 	if err != nil {
 		return domain.ReserveResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	result, err := tx.ExecContext(ctx,
 		`UPDATE stocks 
