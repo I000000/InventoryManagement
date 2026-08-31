@@ -32,7 +32,7 @@ jobs:
           cd backend
           go mod download
 
-      - name: Generate mocks (check they are up to date)
+      - name: Generate mocks (check if they are up to date)
         run: |
           cd backend
           go generate ./...
