@@ -13,7 +13,6 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./backend/internal/repository/postgres/migrations:/docker-entrypoint-initdb.d
       - ims_pg_data:/var/lib/postgresql/data
     networks:
       - app-network
@@ -189,11 +188,35 @@ services:
       - app-network
     restart: on-failure
 
-  migrate:
+  outbox-worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.migrate
-    container_name: ims_migrate
+      dockerfile: Dockerfile.outbox
+    container_name: ims_outbox_worker
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-inventory}
+      - DB_PASS=${DB_PASS:-inventory}
+      - DB_NAME=${DB_NAME:-inventory}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=stock-events
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: on-failure
+
+  clickhouse-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.clickhouse-migrate
+    container_name: ims_clickhouse_migrate
     environment:
       - CLICKHOUSE_HOST=clickhouse:9000
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-inventory}
@@ -201,6 +224,25 @@ services:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-analytics}
     depends_on:
       clickhouse:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: "no"
+
+  postgres-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.postgres-migrate
+    container_name: ims_postgres_migrate
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-inventory}
+      - DB_PASS=${DB_PASS:-inventory}
+      - DB_NAME=${DB_NAME:-inventory}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - app-network

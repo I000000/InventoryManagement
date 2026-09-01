@@ -32,9 +32,16 @@ logs-api: ## Показать логи API-сервиса
 logs-worker: ## Показать логи воркера
 	$(DOCKER_COMPOSE) logs -f stock-worker
 
+.PHONY: migrate-clickhouse
+migrate-clickhouse: ## Применить ClickHouse миграции
+	$(DOCKER_COMPOSE) run --rm clickhouse-migrate
+
+.PHONY: migrate-postgres
+migrate-postgres: ## Применить PostgreSQL миграции
+	$(DOCKER_COMPOSE) run --rm postgres-migrate
+
 .PHONY: migrate
-migrate: ## Накатить миграции в ClickHouse (запускается однократно)
-	$(DOCKER_COMPOSE) run --rm migrate
+migrate: migrate-postgres migrate-clickhouse ## Применить все миграции
 
 .PHONY: restart
 restart: down up ## Перезапустить все сервисы

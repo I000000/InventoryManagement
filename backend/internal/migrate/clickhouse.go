@@ -8,7 +8,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations/clickhouse/*.sql
 var chMigrations embed.FS
 
 func ApplyClickHouseMigrations(db *sql.DB) error {
@@ -17,7 +17,7 @@ func ApplyClickHouseMigrations(db *sql.DB) error {
 		return fmt.Errorf("set dialect: %w", err)
 	}
 
-	if err := goose.Up(db, "migrations"); err != nil {
+	if err := goose.Up(db, "migrations/clickhouse"); err != nil {
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil

@@ -91,8 +91,9 @@ func main() {
 	}()
 
 	// --- DI ---
-	stockRepo := postgres.NewStockRepository(db)
-	reserveSvc := service.NewReserveService(stockRepo, rdb, producer, logger)
+	outboxRepo := postgres.NewOutboxRepository(db)
+	stockRepo := postgres.NewStockRepository(db, outboxRepo)
+	reserveSvc := service.NewReserveService(stockRepo, rdb, logger)
 	reserveHandler := handler.NewReserveHandler(reserveSvc, logger)
 
 	// --- Gin ---

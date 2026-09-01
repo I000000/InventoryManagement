@@ -20,7 +20,8 @@ func TestStockRepository_ReserveTx(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
-	repo := NewStockRepository(sqlxDB)
+	outboxRepo := NewOutboxRepository(sqlxDB)
+	repo := NewStockRepository(sqlxDB, outboxRepo)
 
 	ctx := context.Background()
 
@@ -47,6 +48,11 @@ func TestStockRepository_ReserveTx(t *testing.T) {
 					WHERE product_id = \$2 AND total_count - reserved_count >= \$1`).
 					WithArgs(2, "iphone_15").
 					WillReturnResult(sqlmock.NewResult(0, 1))
+
+				mock.ExpectExec(`INSERT INTO outbox \(event_id, event_type, payload, status\) VALUES \(\$1, \$2, \$3, 'pending'\)`).
+					WithArgs("req-123", "stock_reserved", sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+
 				mock.ExpectCommit()
 			},
 			expectedResp: domain.ReserveResponse{
@@ -153,7 +159,8 @@ func TestStockRepository_GetAvailable(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
-	repo := NewStockRepository(sqlxDB)
+	outboxRepo := NewOutboxRepository(sqlxDB)
+	repo := NewStockRepository(sqlxDB, outboxRepo)
 
 	ctx := context.Background()
 

@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS stocks (
     id SERIAL PRIMARY KEY,
     product_id VARCHAR(64) UNIQUE NOT NULL,
@@ -23,16 +24,22 @@ INSERT INTO stocks (product_id, total_count) VALUES
     ('airpods_pro_2', 1500000)
 ON CONFLICT (product_id) DO NOTHING;
 
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION update_updated_at_column() RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 DROP TRIGGER IF EXISTS update_stocks_updated_at ON stocks;
 CREATE TRIGGER update_stocks_updated_at
     BEFORE UPDATE ON stocks
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- +goose Down
+DROP TRIGGER IF EXISTS update_stocks_updated_at ON stocks;
+DROP FUNCTION IF EXISTS update_updated_at_column();
+DROP TABLE IF EXISTS stocks;

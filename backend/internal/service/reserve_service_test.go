@@ -32,7 +32,7 @@ func TestReserveService_Reserve(t *testing.T) {
 	tests := []struct {
 		name           string
 		req            domain.ReserveRequest
-		setupMocks     func(*mocks.StockRepository, *mocks.EventProducer) chan struct{}
+		setupMocks     func(*mocks.StockRepository)
 		expectedResp   domain.ReserveResponse
 		expectedErr    error
 		checkRedisKeys bool
@@ -44,11 +44,7 @@ func TestReserveService_Reserve(t *testing.T) {
 				Quantity:  2,
 				RequestID: "req-123",
 			},
-			setupMocks: func(repo *mocks.StockRepository, producer *mocks.EventProducer) chan struct{} {
-				done := make(chan struct{})
-				producer.On("SendStockReservedEvent", mock.Anything, mock.Anything).
-					Return(nil).
-					Run(func(args mock.Arguments) { close(done) })
+			setupMocks: func(repo *mocks.StockRepository) {
 				repo.On("ReserveTx", mock.Anything, mock.Anything).Return(
 					domain.ReserveResponse{
 						Status:    "reserved",
@@ -57,7 +53,6 @@ func TestReserveService_Reserve(t *testing.T) {
 					},
 					nil,
 				)
-				return done
 			},
 			expectedResp: domain.ReserveResponse{
 				Status:    "reserved",
@@ -74,9 +69,8 @@ func TestReserveService_Reserve(t *testing.T) {
 				Quantity:  1,
 				RequestID: "dup-123",
 			},
-			setupMocks: func(repo *mocks.StockRepository, producer *mocks.EventProducer) chan struct{} {
-				// Моки не вызываются
-				return nil
+			setupMocks: func(repo *mocks.StockRepository) {
+				// не вызывается
 			},
 			expectedResp: domain.ReserveResponse{},
 			expectedErr:  ErrDuplicateRequest,
@@ -88,12 +82,11 @@ func TestReserveService_Reserve(t *testing.T) {
 				Quantity:  1,
 				RequestID: "req-456",
 			},
-			setupMocks: func(repo *mocks.StockRepository, producer *mocks.EventProducer) chan struct{} {
+			setupMocks: func(repo *mocks.StockRepository) {
 				repo.On("ReserveTx", mock.Anything, mock.Anything).Return(
 					domain.ReserveResponse{},
 					repository.ErrProductNotFound,
 				)
-				return nil
 			},
 			expectedResp: domain.ReserveResponse{},
 			expectedErr:  ErrProductNotFound,
@@ -105,12 +98,11 @@ func TestReserveService_Reserve(t *testing.T) {
 				Quantity:  100,
 				RequestID: "req-789",
 			},
-			setupMocks: func(repo *mocks.StockRepository, producer *mocks.EventProducer) chan struct{} {
+			setupMocks: func(repo *mocks.StockRepository) {
 				repo.On("ReserveTx", mock.Anything, mock.Anything).Return(
 					domain.ReserveResponse{},
 					repository.ErrNotEnoughStock,
 				)
-				return nil
 			},
 			expectedResp: domain.ReserveResponse{},
 			expectedErr:  ErrNotEnoughStock,
@@ -122,12 +114,11 @@ func TestReserveService_Reserve(t *testing.T) {
 				Quantity:  1,
 				RequestID: "req-101",
 			},
-			setupMocks: func(repo *mocks.StockRepository, producer *mocks.EventProducer) chan struct{} {
+			setupMocks: func(repo *mocks.StockRepository) {
 				repo.On("ReserveTx", mock.Anything, mock.Anything).Return(
 					domain.ReserveResponse{},
 					repository.ErrVersionConflict,
 				)
-				return nil
 			},
 			expectedResp: domain.ReserveResponse{},
 			expectedErr:  ErrVersionConflict,
@@ -144,26 +135,15 @@ func TestReserveService_Reserve(t *testing.T) {
 			}
 
 			repo := mocks.NewStockRepository(t)
-			producer := mocks.NewEventProducer(t)
-			done := tt.setupMocks(repo, producer)
+			tt.setupMocks(repo)
 
 			svc := &reserveService{
 				stockRepo: repo,
 				redis:     rdb,
-				producer:  producer,
 				logger:    logger,
 			}
 
 			resp, err := svc.Reserve(ctx, tt.req)
-
-			if tt.expectedErr == nil && done != nil {
-				select {
-				case <-done:
-					// вызов произошёл
-				case <-time.After(1 * time.Second):
-					t.Fatal("timeout waiting for SendStockReservedEvent call")
-				}
-			}
 
 			if tt.expectedErr != nil {
 				assert.ErrorIs(t, err, tt.expectedErr)
@@ -172,7 +152,7 @@ func TestReserveService_Reserve(t *testing.T) {
 				assert.Equal(t, tt.expectedResp, resp)
 			}
 
-			// Проверка ожиданий автоматически выполняется благодаря NewStockRepository/NewEventProducer
+			// Проверка ожиданий автоматическая
 		})
 	}
 }

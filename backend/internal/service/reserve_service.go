@@ -17,30 +17,25 @@ import (
 type reserveService struct {
 	stockRepo StockRepository
 	redis     *redis.Client
-	producer  EventProducer
 	logger    *zap.Logger
 }
 
 func NewReserveService(
 	stockRepo StockRepository,
 	redis *redis.Client,
-	producer EventProducer,
 	logger *zap.Logger,
 ) ReserveService {
 	return &reserveService{
 		stockRepo: stockRepo,
 		redis:     redis,
-		producer:  producer,
 		logger:    logger,
 	}
 }
 
 func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
-	// Увеличиваем счетчик активных резервирований
 	metrics.ActiveReservations.Inc()
 	defer metrics.ActiveReservations.Dec()
 
-	// Идемпотентность
 	idempotencyKey := "idempotent:" + req.RequestID
 	ok, err := s.redis.SetNX(ctx, idempotencyKey, "1", 5*time.Minute).Result()
 	if err != nil {
@@ -50,7 +45,6 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 		return domain.ReserveResponse{}, ErrDuplicateRequest
 	}
 
-	// Вызов репозитория
 	resp, err := s.stockRepo.ReserveTx(ctx, req)
 	if err != nil {
 		switch {
@@ -67,10 +61,8 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 		}
 	}
 
-	// Успешное резервирование
 	metrics.ReservationsTotal.WithLabelValues(req.ProductID, "success").Inc()
 
-	// Обновление кеша после успешной транзакции
 	newAvailable, err := s.redis.DecrBy(ctx, "stock:"+req.ProductID, int64(req.Quantity)).Result()
 	if err != nil {
 		s.logger.Warn("failed to update stock cache", zap.String("product_id", req.ProductID), zap.Error(err))
@@ -78,22 +70,6 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 		s.redis.Expire(ctx, "stock:"+req.ProductID, 5*time.Minute)
 		s.logger.Debug("stock cache updated", zap.String("product_id", req.ProductID), zap.Int64("new_available", newAvailable))
 	}
-
-	// Асинхронная отправка в Kafka
-	event := domain.StockReservedEvent{
-		ProductID: req.ProductID,
-		Quantity:  req.Quantity,
-		RequestID: req.RequestID,
-		Timestamp: time.Now().Unix(),
-	}
-	go func() {
-		if err := s.producer.SendStockReservedEvent(context.Background(), event); err != nil {
-			s.logger.Error("failed to send Kafka event",
-				zap.String("product_id", req.ProductID),
-				zap.Error(err),
-			)
-		}
-	}()
 
 	return resp, nil
 }

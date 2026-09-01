@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/repository"
@@ -13,14 +14,15 @@ import (
 )
 
 type stockRepository struct {
-	db *sqlx.DB
+	db         *sqlx.DB
+	outboxRepo *OutboxRepository
 }
 
-// Проверка, что реализация соответствует интерфейсу
-var _ service.StockRepository = (*stockRepository)(nil)
-
-func NewStockRepository(db *sqlx.DB) service.StockRepository {
-	return &stockRepository{db: db}
+func NewStockRepository(db *sqlx.DB, outboxRepo *OutboxRepository) service.StockRepository {
+	return &stockRepository{
+		db:         db,
+		outboxRepo: outboxRepo,
+	}
 }
 
 func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
@@ -57,6 +59,16 @@ func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveReque
 			return domain.ReserveResponse{}, repository.ErrProductNotFound
 		}
 		return domain.ReserveResponse{}, repository.ErrNotEnoughStock
+	}
+
+	event := domain.StockReservedEvent{
+		ProductID: req.ProductID,
+		Quantity:  req.Quantity,
+		RequestID: req.RequestID,
+		Timestamp: time.Now().Unix(),
+	}
+	if err := r.outboxRepo.Insert(ctx, tx, req.RequestID, "stock_reserved", event); err != nil {
+		return domain.ReserveResponse{}, fmt.Errorf("insert outbox: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
