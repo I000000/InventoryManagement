@@ -10,6 +10,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
+	"github.com/I000000/InventoryManagement/internal/tracing"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -26,60 +27,72 @@ func NewStockRepository(db *sqlx.DB, outboxRepo *OutboxRepository) service.Stock
 }
 
 func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
+	var resp domain.ReserveResponse
+	var err error
 
-	result, err := tx.ExecContext(ctx,
-		`UPDATE stocks 
-		 SET reserved_count = reserved_count + $1, 
-		     version = version + 1,
-		     updated_at = NOW()
-		 WHERE product_id = $2 AND total_count - reserved_count >= $1`,
-		req.Quantity, req.ProductID,
-	)
-	if err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("update: %w", err)
-	}
+	// Оборачиваем всю транзакцию в спан
+	err = tracing.TraceSQL(ctx, "ReserveTx",
+		"UPDATE stocks SET reserved_count = reserved_count + $1, version = version + 1, updated_at = NOW() WHERE product_id = $2 AND total_count - reserved_count >= $1",
+		func(ctx context.Context) error {
+			tx, err := r.db.BeginTxx(ctx, nil)
+			if err != nil {
+				return fmt.Errorf("begin tx: %w", err)
+			}
+			defer func() { _ = tx.Rollback() }()
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("rows affected: %w", err)
-	}
+			result, err := tx.ExecContext(ctx,
+				`UPDATE stocks 
+				 SET reserved_count = reserved_count + $1, 
+				     version = version + 1,
+				     updated_at = NOW()
+				 WHERE product_id = $2 AND total_count - reserved_count >= $1`,
+				req.Quantity, req.ProductID,
+			)
+			if err != nil {
+				return fmt.Errorf("update: %w", err)
+			}
 
-	if rowsAffected == 0 {
-		var exists bool
-		err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM stocks WHERE product_id=$1)", req.ProductID).Scan(&exists)
-		if err != nil {
-			return domain.ReserveResponse{}, fmt.Errorf("check exists: %w", err)
-		}
-		if !exists {
-			return domain.ReserveResponse{}, repository.ErrProductNotFound
-		}
-		return domain.ReserveResponse{}, repository.ErrNotEnoughStock
-	}
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("rows affected: %w", err)
+			}
 
-	event := domain.StockReservedEvent{
-		ProductID: req.ProductID,
-		Quantity:  req.Quantity,
-		RequestID: req.RequestID,
-		Timestamp: time.Now().Unix(),
-	}
-	if err := r.outboxRepo.Insert(ctx, tx, req.RequestID, "stock_reserved", event); err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("insert outbox: %w", err)
-	}
+			if rowsAffected == 0 {
+				var exists bool
+				err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM stocks WHERE product_id=$1)", req.ProductID).Scan(&exists)
+				if err != nil {
+					return fmt.Errorf("check exists: %w", err)
+				}
+				if !exists {
+					return repository.ErrProductNotFound
+				}
+				return repository.ErrNotEnoughStock
+			}
 
-	if err := tx.Commit(); err != nil {
-		return domain.ReserveResponse{}, fmt.Errorf("commit: %w", err)
-	}
+			// Сохраняем событие в outbox
+			event := domain.StockReservedEvent{
+				ProductID: req.ProductID,
+				Quantity:  req.Quantity,
+				RequestID: req.RequestID,
+				Timestamp: time.Now().Unix(),
+			}
+			if err := r.outboxRepo.Insert(ctx, tx, req.RequestID, "stock_reserved", event); err != nil {
+				return fmt.Errorf("insert outbox: %w", err)
+			}
 
-	return domain.ReserveResponse{
-		Status:    "reserved",
-		ProductID: req.ProductID,
-		Reserved:  req.Quantity,
-	}, nil
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("commit: %w", err)
+			}
+
+			resp = domain.ReserveResponse{
+				Status:    "reserved",
+				ProductID: req.ProductID,
+				Reserved:  req.Quantity,
+			}
+			return nil
+		})
+
+	return resp, err
 }
 
 func (r *stockRepository) GetAvailable(ctx context.Context, productID string) (int, error) {

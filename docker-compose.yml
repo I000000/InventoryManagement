@@ -121,6 +121,17 @@ services:
       - app-network
     restart: unless-stopped
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.58
+    container_name: ims_jaeger
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - app-network
+
   inventory-api:
     build:
       context: ./backend
@@ -148,6 +159,8 @@ services:
       - STOCK_CACHE_TTL=${STOCK_CACHE_TTL:-5m}
       - RATE_LIMIT=${RATE_LIMIT:-100}
       - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1s}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=inventory-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -175,6 +188,8 @@ services:
       - REDIS_HOST=redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=inventory-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -203,6 +218,8 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC=stock-events
       - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=inventory-api
     depends_on:
       postgres:
         condition: service_healthy

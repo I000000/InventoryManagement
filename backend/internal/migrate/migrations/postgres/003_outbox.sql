@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS outbox (
     event_id VARCHAR(64) NOT NULL,
     event_type VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    traceparent TEXT,
+    tracestate TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     processed_at TIMESTAMP WITH TIME ZONE,
     status VARCHAR(32) DEFAULT 'pending',

@@ -8,6 +8,8 @@ import (
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 )
 
@@ -50,6 +52,16 @@ func (p *kafkaProducer) SendStockReservedEvent(ctx context.Context, event domain
 		Value: sarama.ByteEncoder(data),
 	}
 
+	propagator := otel.GetTextMapPropagator()
+	carrier := propagation.MapCarrier{}
+	propagator.Inject(ctx, carrier)
+	for k, v := range carrier {
+		msg.Headers = append(msg.Headers, sarama.RecordHeader{
+			Key:   []byte(k),
+			Value: []byte(v),
+		})
+	}
+
 	partition, offset, err := p.producer.SendMessage(msg)
 	if err != nil {
 		p.logger.Error("failed to send Kafka message",
@@ -58,7 +70,6 @@ func (p *kafkaProducer) SendStockReservedEvent(ctx context.Context, event domain
 		)
 		return fmt.Errorf("send message: %w", err)
 	}
-
 	p.logger.Debug("sent Kafka message",
 		zap.String("product_id", event.ProductID),
 		zap.Int32("partition", partition),

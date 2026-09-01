@@ -12,11 +12,13 @@ import (
 
 	"github.com/I000000/InventoryManagement/internal/metrics"
 	"github.com/I000000/InventoryManagement/internal/middleware"
+	"github.com/I000000/InventoryManagement/internal/tracing"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.uber.org/zap"
 
 	"github.com/I000000/InventoryManagement/internal/config"
@@ -35,6 +37,17 @@ func main() {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
 	defer func() { _ = logger.Sync() }()
+
+	// --- Трассировка ---
+	shutdown, err := tracing.InitTracer("inventory-api")
+	if err != nil {
+		logger.Fatal("Failed to init tracer", zap.Error(err))
+	}
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			logger.Error("Failed to shutdown tracer", zap.Error(err))
+		}
+	}()
 
 	// --- PostgreSQL ---
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -98,8 +111,10 @@ func main() {
 
 	// --- Gin ---
 	r := gin.Default()
-	r.Use(metrics.MetricsMiddleware())
 
+	// Трассировка для HTTP запросов
+	r.Use(otelgin.Middleware("inventory-api"))
+	r.Use(metrics.MetricsMiddleware())
 	r.Use(middleware.RateLimiterMiddleware(rdb, cfg.RateLimit, cfg.RateLimitWindow))
 
 	r.GET("/health", func(c *gin.Context) {

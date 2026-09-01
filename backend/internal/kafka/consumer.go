@@ -8,6 +8,8 @@ import (
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 )
 
@@ -76,6 +78,14 @@ func (c *Consumer) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
+		// Извлекаем контекст из заголовков
+		carrier := propagation.MapCarrier{}
+		for _, header := range msg.Headers {
+			carrier[string(header.Key)] = string(header.Value)
+		}
+		propagator := otel.GetTextMapPropagator()
+		ctx := propagator.Extract(session.Context(), carrier)
+
 		var event domain.StockReservedEvent
 		if err := json.Unmarshal(msg.Value, &event); err != nil {
 			c.logger.Error("unmarshal event", zap.Error(err))
@@ -83,11 +93,10 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 			continue
 		}
 
-		if err := c.handler(session.Context(), event); err != nil {
+		if err := c.handler(ctx, event); err != nil {
 			c.logger.Error("handle event failed", zap.Error(err))
 			continue
 		}
-
 		session.MarkMessage(msg, "")
 	}
 	return nil

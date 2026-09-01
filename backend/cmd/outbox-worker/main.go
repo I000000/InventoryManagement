@@ -13,8 +13,11 @@ import (
 	"github.com/I000000/InventoryManagement/internal/kafka"
 	"github.com/I000000/InventoryManagement/internal/repository/postgres"
 	"github.com/I000000/InventoryManagement/internal/service"
+	"github.com/I000000/InventoryManagement/internal/tracing"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 )
 
@@ -22,6 +25,17 @@ func main() {
 	cfg := config.Load()
 	logger, _ := zap.NewProduction()
 	defer func() { _ = logger.Sync() }()
+
+	// --- Трассировка ---
+	shutdown, err := tracing.InitTracer("outbox-worker")
+	if err != nil {
+		logger.Fatal("Failed to init tracer", zap.Error(err))
+	}
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			logger.Error("Failed to shutdown tracer", zap.Error(err))
+		}
+	}()
 
 	logger.Info("Starting outbox worker")
 
@@ -70,20 +84,12 @@ func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, p
 		return
 	}
 
-	logger.Info("found pending events", zap.Int("count", len(events)))
-
 	for _, event := range events {
-		logger.Info("processing event", zap.Int64("id", event.ID), zap.String("event_type", event.EventType))
 		if err := processEvent(ctx, event, producer, logger); err != nil {
 			logger.Error("failed to process event", zap.Int64("id", event.ID), zap.Error(err))
-			if err2 := outboxRepo.MarkFailed(ctx, event.ID, err.Error()); err2 != nil {
-				logger.Error("failed to mark event as failed", zap.Int64("id", event.ID), zap.Error(err2))
-			}
+			outboxRepo.MarkFailed(ctx, event.ID, err.Error())
 		} else {
-			logger.Info("event processed successfully", zap.Int64("id", event.ID))
-			if err2 := outboxRepo.MarkProcessed(ctx, event.ID); err2 != nil {
-				logger.Error("failed to mark event as processed", zap.Int64("id", event.ID), zap.Error(err2))
-			}
+			outboxRepo.MarkProcessed(ctx, event.ID)
 		}
 	}
 }
@@ -93,14 +99,28 @@ func processEvent(ctx context.Context, event postgres.OutboxEvent, producer serv
 		logger.Warn("unknown event type", zap.String("event_type", event.EventType))
 		return nil
 	}
+
+	// Извлекаем контекст из сохранённых заголовков
+	carrier := propagation.MapCarrier{
+		"traceparent": event.TraceParent,
+		"tracestate":  event.TraceState,
+	}
+	propagator := otel.GetTextMapPropagator()
+	ctx = propagator.Extract(ctx, carrier)
+
 	var stockEvent domain.StockReservedEvent
 	if err := json.Unmarshal(event.Payload, &stockEvent); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
-	logger.Info("sending event to Kafka", zap.Int64("id", event.ID), zap.String("product_id", stockEvent.ProductID))
+
+	// Теперь создаём спан как дочерний
+	ctx, span := tracing.TraceKafkaProduce(ctx, "stock-events", stockEvent.RequestID)
+	defer span.End()
+
 	if err := producer.SendStockReservedEvent(ctx, stockEvent); err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("send to Kafka: %w", err)
 	}
-	logger.Info("event sent to Kafka", zap.Int64("id", event.ID))
+	logger.Debug("event sent", zap.Int64("id", event.ID))
 	return nil
 }

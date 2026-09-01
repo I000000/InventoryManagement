@@ -12,6 +12,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/kafka"
 	"github.com/I000000/InventoryManagement/internal/repository/clickhouse"
+	"github.com/I000000/InventoryManagement/internal/tracing"
 	"go.uber.org/zap"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -23,6 +24,17 @@ func main() {
 	// --- Логгер ---
 	logger, _ := zap.NewProduction()
 	defer func() { _ = logger.Sync() }()
+
+	// --- Трассировка ---
+	shutdown, err := tracing.InitTracer("stock-worker")
+	if err != nil {
+		logger.Fatal("Failed to init tracer", zap.Error(err))
+	}
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			logger.Error("Failed to shutdown tracer", zap.Error(err))
+		}
+	}()
 
 	logger.Info("Starting stock worker",
 		zap.String("clickhouse", cfg.CHHost),
@@ -64,12 +76,22 @@ func main() {
 	defer cancel()
 
 	handler := func(ctx context.Context, event domain.StockReservedEvent) error {
+		// Создаём спан для получения из Kafka
+		ctx, span := tracing.TraceKafkaConsume(ctx, cfg.KafkaTopic, event.RequestID)
+		defer span.End()
+
 		logger.Info("Received event from Kafka",
 			zap.String("product_id", event.ProductID),
 			zap.Int("quantity", event.Quantity),
 			zap.String("request_id", event.RequestID),
 		)
-		return chRepo.InsertReservation(ctx, event)
+
+		// Оборачиваем вставку в ClickHouse в спан
+		query := "INSERT INTO stock_reservations (product_id, quantity, user_id, request_id) VALUES (?, ?, ?, ?)"
+		err := tracing.TraceSQL(ctx, "ClickHouseInsert", query, func(ctx context.Context) error {
+			return chRepo.InsertReservation(ctx, event)
+		})
+		return err
 	}
 
 	// Запускаем потребление в горутине
