@@ -28,10 +28,9 @@ func NewStockRepository(db *sqlx.DB, outboxRepo *OutboxRepository) service.Stock
 
 func (r *stockRepository) ReserveTx(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
 	var resp domain.ReserveResponse
-	var err error
 
 	// Оборачиваем всю транзакцию в спан
-	err = tracing.TraceSQL(ctx, "ReserveTx",
+	err := tracing.TraceSQL(ctx, "ReserveTx",
 		"UPDATE stocks SET reserved_count = reserved_count + $1, version = version + 1, updated_at = NOW() WHERE product_id = $2 AND total_count - reserved_count >= $1",
 		func(ctx context.Context) error {
 			tx, err := r.db.BeginTxx(ctx, nil)

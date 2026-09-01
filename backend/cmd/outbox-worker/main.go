@@ -87,9 +87,13 @@ func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, p
 	for _, event := range events {
 		if err := processEvent(ctx, event, producer, logger); err != nil {
 			logger.Error("failed to process event", zap.Int64("id", event.ID), zap.Error(err))
-			outboxRepo.MarkFailed(ctx, event.ID, err.Error())
+			if markErr := outboxRepo.MarkFailed(ctx, event.ID, err.Error()); markErr != nil {
+				logger.Error("failed to mark event as failed", zap.Int64("id", event.ID), zap.Error(markErr))
+			}
 		} else {
-			outboxRepo.MarkProcessed(ctx, event.ID)
+			if markErr := outboxRepo.MarkProcessed(ctx, event.ID); markErr != nil {
+				logger.Error("failed to mark event as processed", zap.Int64("id", event.ID), zap.Error(markErr))
+			}
 		}
 	}
 }
