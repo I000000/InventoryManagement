@@ -58,6 +58,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
+      start_period: 30s
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
@@ -71,6 +72,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
+      start_period: 30s
 
   kafka:
     image: wurstmeister/kafka:latest
@@ -111,7 +113,7 @@ services:
     image: grafana/grafana:latest
     container_name: ims_grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
     ports:
       - "3000:3000"
     volumes:
@@ -134,13 +136,19 @@ services:
       - DB_USER=${DB_USER:-inventory}
       - DB_PASS=${DB_PASS:-inventory}
       - DB_NAME=${DB_NAME:-inventory}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_MAX_CONNS=${DB_MAX_CONNS:-10}
       - REDIS_HOST=redis:6379
-      - REDIS_PASSWORD=
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-0}
       - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC=stock-events
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-stock-events}
       - LOG_LEVEL=${LOG_LEVEL:-debug}
       - SERVER_PORT=8080
-      - STOCK_CACHE_TTL=5m
+      - IDEMPOTENCY_TTL=${IDEMPOTENCY_TTL:-5m}
+      - STOCK_CACHE_TTL=${STOCK_CACHE_TTL:-5m}
+      - RATE_LIMIT=${RATE_LIMIT:-100}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1s}
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,10 +171,10 @@ services:
       - CLICKHOUSE_PASS=${CLICKHOUSE_PASS:-inventory}
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-analytics}
       - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC=stock-events
-      - KAFKA_GROUP=stock-worker-group
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-stock-events}
+      - KAFKA_GROUP=${KAFKA_GROUP:-stock-worker-group}
       - REDIS_HOST=redis:6379
-      - REDIS_PASSWORD=
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL:-debug}
     depends_on:
       postgres:
@@ -205,7 +213,6 @@ services:
     container_name: ims_k6
     environment:
       - K6_BASE_URL=http://inventory-api:8080
-      - K6_PRODUCT=iphone_15
     depends_on:
       inventory-api:
         condition: service_started

@@ -33,11 +33,13 @@ type Config struct {
 	KafkaGroup   string
 
 	// Application
-	LogLevel       string
-	AppEnv         string
-	ServerPort     string
-	IdempotencyTTL time.Duration
-	StockCacheTTL  time.Duration
+	LogLevel        string
+	AppEnv          string
+	ServerPort      string
+	IdempotencyTTL  time.Duration
+	StockCacheTTL   time.Duration
+	RateLimit       int
+	RateLimitWindow time.Duration
 }
 
 func Load() *Config {
@@ -63,11 +65,13 @@ func Load() *Config {
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "stock-events"),
 		KafkaGroup:   getEnv("KAFKA_GROUP", "stock-worker-group"),
 
-		LogLevel:       getEnv("LOG_LEVEL", "info"),
-		AppEnv:         getEnv("APP_ENV", "development"),
-		ServerPort:     getEnv("SERVER_PORT", "8080"),
-		IdempotencyTTL: getEnvAsDuration("IDEMPOTENCY_TTL", 5*time.Minute),
-		StockCacheTTL:  getEnvAsDuration("STOCK_CACHE_TTL", 5*time.Minute),
+		LogLevel:        getEnv("LOG_LEVEL", "info"),
+		AppEnv:          getEnv("APP_ENV", "development"),
+		ServerPort:      getEnv("SERVER_PORT", "8080"),
+		IdempotencyTTL:  getEnvAsDuration("IDEMPOTENCY_TTL", 5*time.Minute),
+		StockCacheTTL:   getEnvAsDuration("STOCK_CACHE_TTL", 5*time.Minute),
+		RateLimit:       getEnvAsInt("RATE_LIMIT", 100),
+		RateLimitWindow: getEnvAsDuration("RATE_LIMIT_WINDOW", 1*time.Second),
 	}
 }
 

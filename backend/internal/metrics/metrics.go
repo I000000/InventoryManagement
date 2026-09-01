@@ -25,6 +25,13 @@ var (
 		[]string{"method", "path"},
 	)
 
+	RateLimitedRequests = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "rate_limited_requests_total",
+			Help: "Total number of requests rejected by rate limiter",
+		},
+	)
+
 	// Бизнес-метрики
 	ReservationsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

@@ -46,7 +46,7 @@ export default function () {
   const res = http.post(`${BASE_URL}/api/v1/reserve`, payload, params);
 
   check(res, {
-    'status is 200 or 409': (r) => r.status === 200 || r.status === 409,
+    'status is 200, 409, or 429': (r) => r.status === 200 || r.status === 409 || r.status === 429,
     'response time < 1.5s': (r) => r.timings.duration < 1500,
   });
 

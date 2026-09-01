@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/metrics"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -92,11 +93,13 @@ func main() {
 	// --- DI ---
 	stockRepo := postgres.NewStockRepository(db)
 	reserveSvc := service.NewReserveService(stockRepo, rdb, producer, logger)
-	reserveHandler := handler.NewReserveHandler(reserveSvc)
+	reserveHandler := handler.NewReserveHandler(reserveSvc, logger)
 
 	// --- Gin ---
 	r := gin.Default()
 	r.Use(metrics.MetricsMiddleware())
+
+	r.Use(middleware.RateLimiterMiddleware(rdb, cfg.RateLimit, cfg.RateLimitWindow))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{

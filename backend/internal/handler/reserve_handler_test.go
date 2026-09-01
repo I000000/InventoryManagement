@@ -14,10 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"go.uber.org/zap"
 )
 
 func TestReserveHandler_Reserve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+
+	logger := zap.NewNop()
 
 	tests := []struct {
 		name           string
@@ -130,7 +133,7 @@ func TestReserveHandler_Reserve(t *testing.T) {
 				tt.setupMock(mockSvc)
 			}
 
-			h := NewReserveHandler(mockSvc)
+			h := NewReserveHandler(mockSvc, logger)
 
 			body, _ := json.Marshal(tt.requestBody)
 			req := httptest.NewRequest("POST", "/api/v1/reserve", bytes.NewReader(body))
