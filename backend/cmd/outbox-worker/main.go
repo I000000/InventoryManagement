@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/I000000/InventoryManagement/internal/circuitbreaker"
 	"github.com/I000000/InventoryManagement/internal/config"
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/kafka"
@@ -16,6 +17,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/tracing"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/sony/gobreaker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
@@ -55,6 +57,9 @@ func main() {
 
 	outboxRepo := postgres.NewOutboxRepository(db)
 
+	// --- Circuit Breaker ---
+	cb := circuitbreaker.NewKafkaCircuitBreaker(logger)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -69,12 +74,12 @@ func main() {
 			logger.Info("Outbox worker shutting down")
 			return
 		case <-ticker.C:
-			processOutbox(ctx, outboxRepo, producer, logger)
+			processOutbox(ctx, outboxRepo, producer, logger, cb)
 		}
 	}
 }
 
-func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, producer service.EventProducer, logger *zap.Logger) {
+func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, producer service.EventProducer, logger *zap.Logger, cb *gobreaker.CircuitBreaker) {
 	events, err := outboxRepo.GetPending(ctx, 10)
 	if err != nil {
 		logger.Error("failed to get pending events", zap.Error(err))
@@ -85,7 +90,7 @@ func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, p
 	}
 
 	for _, event := range events {
-		if err := processEvent(ctx, event, producer, logger); err != nil {
+		if err := processEvent(ctx, event, producer, logger, cb); err != nil {
 			logger.Error("failed to process event", zap.Int64("id", event.ID), zap.Error(err))
 			if markErr := outboxRepo.MarkFailed(ctx, event.ID, err.Error()); markErr != nil {
 				logger.Error("failed to mark event as failed", zap.Int64("id", event.ID), zap.Error(markErr))
@@ -98,7 +103,7 @@ func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, p
 	}
 }
 
-func processEvent(ctx context.Context, event postgres.OutboxEvent, producer service.EventProducer, logger *zap.Logger) error {
+func processEvent(ctx context.Context, event postgres.OutboxEvent, producer service.EventProducer, logger *zap.Logger, cb *gobreaker.CircuitBreaker) error {
 	if event.EventType != "stock_reserved" {
 		logger.Warn("unknown event type", zap.String("event_type", event.EventType))
 		return nil
@@ -117,14 +122,19 @@ func processEvent(ctx context.Context, event postgres.OutboxEvent, producer serv
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Теперь создаём спан как дочерний
+	// Создаём спан для отправки в Kafka
 	ctx, span := tracing.TraceKafkaProduce(ctx, "stock-events", stockEvent.RequestID)
 	defer span.End()
 
-	if err := producer.SendStockReservedEvent(ctx, stockEvent); err != nil {
+	// Отправляем через Circuit Breaker
+	_, err := cb.Execute(func() (interface{}, error) {
+		return nil, producer.SendStockReservedEvent(ctx, stockEvent)
+	})
+	if err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("send to Kafka: %w", err)
+		return fmt.Errorf("send to Kafka (circuit breaker): %w", err)
 	}
+
 	logger.Debug("event sent", zap.Int64("id", event.ID))
 	return nil
 }
