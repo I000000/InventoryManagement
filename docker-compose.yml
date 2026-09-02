@@ -185,6 +185,7 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC=${KAFKA_TOPIC:-stock-events}
       - KAFKA_GROUP=${KAFKA_GROUP:-stock-worker-group}
+      - KAFKA_CONSUMER_WORKERS=${KAFKA_CONSUMER_WORKERS:-5}
       - REDIS_HOST=redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL:-debug}

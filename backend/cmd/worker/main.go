@@ -59,12 +59,17 @@ func main() {
 
 	chRepo := clickhouse.NewEventRepository(chDB)
 
+	// --- Worker pool size ---
+	workerCount := cfg.KafkaConsumerWorkers
+	logger.Info("Consumer workers", zap.Int("count", workerCount))
+
 	// --- Kafka consumer ---
 	consumer, err := kafka.NewConsumer(
 		[]string{cfg.KafkaBrokers},
 		cfg.KafkaGroup,
 		cfg.KafkaTopic,
 		logger,
+		workerCount,
 	)
 	if err != nil {
 		logger.Fatal("Kafka consumer creation failed", zap.Error(err))
@@ -91,6 +96,9 @@ func main() {
 		err := tracing.TraceSQL(ctx, "ClickHouseInsert", query, func(ctx context.Context) error {
 			return chRepo.InsertReservation(ctx, event)
 		})
+		if err != nil {
+			span.RecordError(err)
+		}
 		return err
 	}
 
@@ -102,11 +110,11 @@ func main() {
 
 	logger.Info("Worker started, listening for messages...")
 
-	// Ожидаем сигнал (контекст отменится при SIGINT/SIGTERM)
+	// Ожидаем сигнал
 	<-ctx.Done()
 	logger.Info("Received shutdown signal, stopping worker...")
 
-	// Закрываем consumer, чтобы прервать ConsumeWithRetry
+	// Закрываем consumer
 	if err := consumer.Close(); err != nil {
 		logger.Error("Error closing consumer", zap.Error(err))
 	}

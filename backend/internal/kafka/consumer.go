@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
@@ -14,13 +15,14 @@ import (
 )
 
 type Consumer struct {
-	consumer sarama.ConsumerGroup
-	topic    string
-	logger   *zap.Logger
-	handler  func(ctx context.Context, event domain.StockReservedEvent) error
+	consumer    sarama.ConsumerGroup
+	topic       string
+	logger      *zap.Logger
+	handler     func(ctx context.Context, event domain.StockReservedEvent) error
+	workerCount int
 }
 
-func NewConsumer(brokers []string, groupID string, topic string, logger *zap.Logger) (*Consumer, error) {
+func NewConsumer(brokers []string, groupID string, topic string, logger *zap.Logger, workerCount ...int) (*Consumer, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRoundRobin()}
 	config.Consumer.Offsets.Initial = sarama.OffsetNewest
@@ -31,14 +33,20 @@ func NewConsumer(brokers []string, groupID string, topic string, logger *zap.Log
 		return nil, fmt.Errorf("create consumer group: %w", err)
 	}
 
+	wc := 1
+	if len(workerCount) > 0 && workerCount[0] > 0 {
+		wc = workerCount[0]
+	}
+
 	return &Consumer{
-		consumer: consumer,
-		topic:    topic,
-		logger:   logger,
+		consumer:    consumer,
+		topic:       topic,
+		logger:      logger,
+		workerCount: wc,
 	}, nil
 }
 
-// ConsumeWithRetry запускает потребление с бесконечными ретраями при ошибках
+// ConsumeWithRetry запускает потребление с бесконечными ретраями при ошибках.
 func (c *Consumer) ConsumeWithRetry(ctx context.Context, handler func(ctx context.Context, event domain.StockReservedEvent) error) error {
 	c.handler = handler
 	retryDelay := 3 * time.Second
@@ -71,35 +79,60 @@ func (c *Consumer) ConsumeWithRetry(ctx context.Context, handler func(ctx contex
 	}
 }
 
-// Setup, Cleanup, ConsumeClaim — реализация sarama.ConsumerGroupHandler
 func (c *Consumer) Setup(sarama.ConsumerGroupSession) error { return nil }
 
 func (c *Consumer) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for msg := range claim.Messages() {
-		// Извлекаем контекст из заголовков
-		carrier := propagation.MapCarrier{}
-		for _, header := range msg.Headers {
-			carrier[string(header.Key)] = string(header.Value)
-		}
-		propagator := otel.GetTextMapPropagator()
-		ctx := propagator.Extract(session.Context(), carrier)
+	// Канал для сообщений (буферизированный)
+	msgChan := make(chan *sarama.ConsumerMessage, c.workerCount*2)
+	var wg sync.WaitGroup
 
-		var event domain.StockReservedEvent
-		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			c.logger.Error("unmarshal event", zap.Error(err))
-			session.MarkMessage(msg, "")
-			continue
-		}
-
-		if err := c.handler(ctx, event); err != nil {
-			c.logger.Error("handle event failed", zap.Error(err))
-			continue
-		}
-		session.MarkMessage(msg, "")
+	// Запускаем воркеров
+	for i := 0; i < c.workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for msg := range msgChan {
+				c.processMessage(session, msg)
+			}
+		}()
 	}
+
+	// Читаем сообщения и отправляем в канал
+	for msg := range claim.Messages() {
+		msgChan <- msg
+	}
+
+	// Закрываем канал и ждём завершения воркеров
+	close(msgChan)
+	wg.Wait()
 	return nil
+}
+
+func (c *Consumer) processMessage(session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
+	// Извлекаем контекст из заголовков
+	carrier := propagation.MapCarrier{}
+	for _, header := range msg.Headers {
+		carrier[string(header.Key)] = string(header.Value)
+	}
+	propagator := otel.GetTextMapPropagator()
+	ctx := propagator.Extract(session.Context(), carrier)
+
+	var event domain.StockReservedEvent
+	if err := json.Unmarshal(msg.Value, &event); err != nil {
+		c.logger.Error("unmarshal event", zap.Error(err))
+		session.MarkMessage(msg, "")
+		return
+	}
+
+	if err := c.handler(ctx, event); err != nil {
+		c.logger.Error("handle event failed", zap.Error(err))
+		// Не коммитим сообщение при ошибке — оно будет обработано повторно
+		return
+	}
+
+	session.MarkMessage(msg, "")
 }
 
 func (c *Consumer) Close() error {

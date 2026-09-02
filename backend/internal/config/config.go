@@ -28,9 +28,10 @@ type Config struct {
 	CHDB   string
 
 	// Kafka
-	KafkaBrokers string
-	KafkaTopic   string
-	KafkaGroup   string
+	KafkaBrokers         string
+	KafkaTopic           string
+	KafkaGroup           string
+	KafkaConsumerWorkers int
 
 	// Application
 	LogLevel        string
@@ -61,9 +62,10 @@ func Load() *Config {
 		CHPass: getEnv("CLICKHOUSE_PASS", "inventory"),
 		CHDB:   getEnv("CLICKHOUSE_DB", "analytics"),
 
-		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
-		KafkaTopic:   getEnv("KAFKA_TOPIC", "stock-events"),
-		KafkaGroup:   getEnv("KAFKA_GROUP", "stock-worker-group"),
+		KafkaBrokers:         getEnv("KAFKA_BROKERS", "localhost:9092"),
+		KafkaTopic:           getEnv("KAFKA_TOPIC", "stock-events"),
+		KafkaGroup:           getEnv("KAFKA_GROUP", "stock-worker-group"),
+		KafkaConsumerWorkers: getEnvAsInt("KAFKA_CONSUMER_WORKERS", 5),
 
 		LogLevel:        getEnv("LOG_LEVEL", "info"),
 		AppEnv:          getEnv("APP_ENV", "development"),
