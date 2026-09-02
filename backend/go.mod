@@ -19,6 +19,8 @@ require (
 	go.uber.org/zap v1.28.0
 )
 
+require github.com/gorilla/websocket v1.5.3 // indirect
+
 require (
 	github.com/ClickHouse/ch-go v0.74.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect

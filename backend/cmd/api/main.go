@@ -13,6 +13,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/metrics"
 	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/I000000/InventoryManagement/internal/tracing"
+	"github.com/I000000/InventoryManagement/internal/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -103,15 +104,23 @@ func main() {
 		}
 	}()
 
+	// --- WebSocket Hub ---
+	hub := websocket.NewHub(logger)
+	go hub.Run()
+
 	// --- DI ---
 	outboxRepo := postgres.NewOutboxRepository(db)
 	stockRepo := postgres.NewStockRepository(db, outboxRepo)
 	reserveSvc := service.NewReserveService(stockRepo, rdb, logger)
 	reserveLogRepo := postgres.NewReserveLogRepository(db)
-	reserveHandler := handler.NewReserveHandler(reserveSvc, reserveLogRepo, logger)
+	reserveHandler := handler.NewReserveHandler(reserveSvc, reserveLogRepo, logger, hub)
 
 	// --- Gin ---
 	r := gin.Default()
+
+	r.GET("/ws", func(c *gin.Context) {
+		websocket.Handler(hub)(c.Writer, c.Request)
+	})
 
 	// Трассировка для HTTP запросов
 	r.Use(otelgin.Middleware("inventory-api"))
@@ -124,6 +133,7 @@ func main() {
 			"service": "inventory-api",
 		})
 	})
+
 	r.POST("/api/v1/reservations", reserveHandler.Reserve)
 	r.GET("/api/v1/reservations", reserveHandler.GetReservations)
 

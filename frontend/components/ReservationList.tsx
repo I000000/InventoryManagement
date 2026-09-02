@@ -10,24 +10,58 @@ interface ReservationListProps {
 export function ReservationList({ refreshTrigger = 0 }: ReservationListProps) {
   const [reservations, setReservations] = useState<ReserveLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Загрузка начальных данных (при монтировании и при изменении refreshTrigger)
+  const fetchReservations = async () => {
+    try {
+      const data = await getReservations(10);
+      setReservations(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch reservations', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
+    fetchReservations();
+  }, [refreshTrigger]);
+
+  // WebSocket — слушаем новые резервирования
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+    ws.onmessage = (event) => {
       try {
-        setLoading(true);
-        const data = await getReservations(10);
-        setReservations(data);
-        setError(null);
+        const data = JSON.parse(event.data);
+        if (data.type === 'new_reservation') {
+          const payload = data.payload;
+          const newEntry: ReserveLogEntry = {
+            id: Date.now(), // временный ID
+            product_id: payload.product_id,
+            quantity: payload.quantity,
+            status: payload.status,
+            created_at: payload.created_at,
+            request_id: '',
+            user_id: '',
+            error_message: null,
+          };
+          setReservations((prev) => [newEntry, ...prev]);
+        }
       } catch (err) {
-        setError('Failed to load reservations');
-        console.error(err);
-      } finally {
-        setLoading(false);
+        console.error('WebSocket message parse error', err);
       }
     };
-    fetchData();
-  }, [refreshTrigger]);
+
+    ws.onerror = (err) => {
+      console.error('WebSocket error', err);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -38,19 +72,10 @@ export function ReservationList({ refreshTrigger = 0 }: ReservationListProps) {
     );
   }
 
-  if (error) {
-    return (
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold text-gray-700 mb-4">Recent Reservations</h2>
-        <p className="text-red-500">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="mt-8">
       <h2 className="text-xl font-semibold text-gray-700 mb-4">Recent Reservations</h2>
-      {!reservations || reservations.length === 0 ? (
+      {reservations.length === 0 ? (
         <p className="text-gray-500">No reservations yet.</p>
       ) : (
         <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -68,7 +93,7 @@ export function ReservationList({ refreshTrigger = 0 }: ReservationListProps) {
                 </span>
               </div>
               <span className="text-gray-400 text-xs">
-                {new Date(entry.created_at).toLocaleString()}
+                {entry.created_at ? new Date(entry.created_at).toLocaleString() : 'N/A'}
               </span>
             </div>
           ))}

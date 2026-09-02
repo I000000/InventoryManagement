@@ -6,6 +6,10 @@ const nextConfig = {
         source: '/api/:path*',
         destination: 'http://inventory-api:8080/api/:path*',
       },
+      {
+        source: '/ws',
+        destination: 'http://inventory-api:8080/ws',
+      },
     ];
   },
 };

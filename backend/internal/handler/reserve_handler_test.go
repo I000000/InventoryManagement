@@ -13,6 +13,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/mocks"
 	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
+	"github.com/I000000/InventoryManagement/internal/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -38,6 +39,10 @@ func TestReserveHandler_Reserve(t *testing.T) {
 
 	logger := zap.NewNop()
 	mockRepo := &mockReserveLogRepo{}
+
+	// Создаём Hub с логгером-заглушкой
+	hub := websocket.NewHub(logger)
+	go hub.Run()
 
 	tests := []struct {
 		name           string
@@ -150,7 +155,7 @@ func TestReserveHandler_Reserve(t *testing.T) {
 				tt.setupMock(mockSvc)
 			}
 
-			h := NewReserveHandler(mockSvc, mockRepo, logger)
+			h := NewReserveHandler(mockSvc, mockRepo, logger, hub)
 
 			body, _ := json.Marshal(tt.requestBody)
 			req := httptest.NewRequest("POST", "/api/v1/reservations", bytes.NewReader(body))

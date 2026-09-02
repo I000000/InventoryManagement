@@ -5,10 +5,12 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
+	"github.com/I000000/InventoryManagement/internal/websocket"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -17,17 +19,20 @@ type ReserveHandler struct {
 	reserveService service.ReserveService
 	reserveLogRepo repository.ReserveLogRepository
 	logger         *zap.Logger
+	hub            *websocket.Hub
 }
 
 func NewReserveHandler(
 	svc service.ReserveService,
 	reserveLogRepo repository.ReserveLogRepository,
 	logger *zap.Logger,
+	hub *websocket.Hub,
 ) *ReserveHandler {
 	return &ReserveHandler{
 		reserveService: svc,
 		reserveLogRepo: reserveLogRepo,
 		logger:         logger,
+		hub:            hub,
 	}
 }
 
@@ -66,11 +71,26 @@ func (h *ReserveHandler) Reserve(c *gin.Context) {
 		status = "success"
 	}
 
-	// Асинхронная запись в лог
+	// Асинхронная запись в лог и отправка WebSocket события
 	go func() {
 		logCtx := context.Background()
 		if err := h.reserveLogRepo.Insert(logCtx, req.ProductID, req.Quantity, req.RequestID, "", status, errMsg); err != nil {
 			h.logger.Error("failed to insert reserve log", zap.Error(err))
+		} else {
+			// Отправляем событие всем клиентам
+			h.hub.Broadcast(websocket.Message{
+				Type: "new_reservation",
+				Payload: map[string]interface{}{
+					"product_id": req.ProductID,
+					"quantity":   req.Quantity,
+					"status":     status,
+					"created_at": time.Now().UTC().Format(time.RFC3339),
+				},
+			})
+			h.logger.Debug("Broadcasting new reservation via WebSocket",
+				zap.String("product_id", req.ProductID),
+				zap.String("status", status),
+			)
 		}
 	}()
 
