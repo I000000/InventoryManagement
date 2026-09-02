@@ -10,6 +10,7 @@ import (
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/mocks"
+	"github.com/I000000/InventoryManagement/internal/repository/postgres"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ func TestReserveHandler_Reserve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	logger := zap.NewNop()
+	var mockLogRepo *postgres.ReserveLogRepository = nil
 
 	tests := []struct {
 		name           string
@@ -133,10 +135,10 @@ func TestReserveHandler_Reserve(t *testing.T) {
 				tt.setupMock(mockSvc)
 			}
 
-			h := NewReserveHandler(mockSvc, logger)
+			h := NewReserveHandler(mockSvc, mockLogRepo, logger)
 
 			body, _ := json.Marshal(tt.requestBody)
-			req := httptest.NewRequest("POST", "/api/v1/reserve", bytes.NewReader(body))
+			req := httptest.NewRequest("POST", "/api/v1/reservations", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 
 			w := httptest.NewRecorder()
@@ -155,8 +157,6 @@ func TestReserveHandler_Reserve(t *testing.T) {
 				assert.Equal(t, tt.expectedBody["status"], resp.Status)
 				assert.Equal(t, int(tt.expectedBody["reserved"].(float64)), resp.Reserved)
 			}
-
-			// Проверка ожиданий автоматическая через Cleanup, зарегистрированный в NewReserveService
 		})
 	}
 }

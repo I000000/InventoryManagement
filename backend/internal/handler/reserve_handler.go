@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/repository/postgres"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -13,12 +15,18 @@ import (
 
 type ReserveHandler struct {
 	reserveService service.ReserveService
+	reserveLogRepo *postgres.ReserveLogRepository
 	logger         *zap.Logger
 }
 
-func NewReserveHandler(svc service.ReserveService, logger *zap.Logger) *ReserveHandler {
+func NewReserveHandler(
+	svc service.ReserveService,
+	reserveLogRepo *postgres.ReserveLogRepository,
+	logger *zap.Logger,
+) *ReserveHandler {
 	return &ReserveHandler{
 		reserveService: svc,
+		reserveLogRepo: reserveLogRepo,
 		logger:         logger,
 	}
 }
@@ -31,68 +39,76 @@ func (h *ReserveHandler) Reserve(c *gin.Context) {
 		return
 	}
 
-	// Логируем входящий запрос (можно на DEBUG уровне)
-	h.logger.Debug("reserve request",
-		zap.String("product_id", req.ProductID),
-		zap.Int("quantity", req.Quantity),
-		zap.String("request_id", req.RequestID),
-	)
+	ctx := c.Request.Context()
+	resp, err := h.reserveService.Reserve(ctx, req)
 
-	resp, err := h.reserveService.Reserve(c.Request.Context(), req)
+	// Определяем статус и сообщение для лога
+	var status string
+	var errMsg *string
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrProductNotFound):
-			h.logger.Info("product not found",
-				zap.String("product_id", req.ProductID),
-				zap.String("request_id", req.RequestID),
-			)
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-
+			status = "not_found"
 		case errors.Is(err, service.ErrNotEnoughStock):
-			h.logger.Info("not enough stock",
-				zap.String("product_id", req.ProductID),
-				zap.Int("quantity", req.Quantity),
-				zap.String("request_id", req.RequestID),
-			)
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-
+			status = "not_enough_stock"
 		case errors.Is(err, service.ErrDuplicateRequest):
-			h.logger.Info("duplicate request",
-				zap.String("product_id", req.ProductID),
-				zap.String("request_id", req.RequestID),
-			)
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-
+			status = "duplicate"
 		case errors.Is(err, service.ErrVersionConflict):
-			h.logger.Info("version conflict",
-				zap.String("product_id", req.ProductID),
-				zap.String("request_id", req.RequestID),
-			)
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-
+			status = "version_conflict"
 		case errors.Is(err, context.DeadlineExceeded):
-			h.logger.Warn("request timeout",
-				zap.String("product_id", req.ProductID),
-				zap.String("request_id", req.RequestID),
-			)
-			c.JSON(http.StatusRequestTimeout, gin.H{"error": "request timeout"})
-
+			status = "timeout"
 		default:
-			h.logger.Error("unexpected error",
-				zap.Error(err),
-				zap.String("product_id", req.ProductID),
-				zap.String("request_id", req.RequestID),
-			)
+			status = "error"
+		}
+		msg := err.Error()
+		errMsg = &msg
+	} else {
+		status = "success"
+	}
+
+	// Асинхронная запись в лог
+	go func() {
+		logCtx := context.Background()
+		if err := h.reserveLogRepo.Insert(logCtx, req.ProductID, req.Quantity, req.RequestID, "", status, errMsg); err != nil {
+			h.logger.Error("failed to insert reserve log", zap.Error(err))
+		}
+	}()
+
+	// Возвращаем ответ
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrProductNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrNotEnoughStock):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrDuplicateRequest):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrVersionConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, context.DeadlineExceeded):
+			c.JSON(http.StatusRequestTimeout, gin.H{"error": "request timeout"})
+		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		}
 		return
 	}
 
-	// Успешный ответ
-	h.logger.Debug("reservation successful",
-		zap.String("product_id", req.ProductID),
-		zap.Int("reserved", resp.Reserved),
-		zap.String("request_id", req.RequestID),
-	)
 	c.JSON(http.StatusOK, resp)
+}
+
+func (h *ReserveHandler) GetReservations(c *gin.Context) {
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	entries, err := h.reserveLogRepo.GetRecent(c.Request.Context(), limit)
+	if err != nil {
+		h.logger.Error("failed to get reserve log", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get reservations"})
+		return
+	}
+	c.JSON(http.StatusOK, entries)
 }

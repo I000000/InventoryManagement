@@ -1,6 +1,16 @@
-import { ReserveForm } from '@/components/ReserveForm';
+'use client';
+
+import { useState } from 'react';
+import { ReservationForm } from '@/components/ReservationForm';
+import { ReservationList } from '@/components/ReservationList';
 
 export default function Home() {
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const handleReservationSuccess = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
+
   return (
     <main className="min-h-screen bg-gray-50 py-12 px-4">
       <div className="max-w-3xl mx-auto">
@@ -10,7 +20,8 @@ export default function Home() {
         <p className="text-center text-gray-500 mb-8">
           Reserve products with idempotency and real-time processing
         </p>
-        <ReserveForm />
+        <ReservationForm onSuccess={handleReservationSuccess} />
+        <ReservationList refreshTrigger={refreshTrigger} />
       </div>
     </main>
   );

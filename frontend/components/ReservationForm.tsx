@@ -16,7 +16,11 @@ const PRODUCTS = [
   'airpods_pro_2',
 ];
 
-export function ReserveForm() {
+interface ReservationFormProps {
+  onSuccess?: () => void;
+}
+
+export function ReservationForm({ onSuccess }: ReservationFormProps) {
   const [productId, setProductId] = useState(PRODUCTS[0]);
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -35,6 +39,7 @@ export function ReserveForm() {
         success: true,
         message: `✅ Reserved ${data.reserved} x ${data.product_id}`,
       });
+      if (onSuccess) onSuccess();
     } catch (err: any) {
       setResult({
         success: false,
@@ -50,15 +55,15 @@ export function ReserveForm() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-            <select
+          <select
             value={productId}
             onChange={(e) => setProductId(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
+          >
             {PRODUCTS.map((p) => (
-                <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>{p}</option>
             ))}
-            </select>
+          </select>
         </div>
 
         <div>
@@ -70,7 +75,7 @@ export function ReserveForm() {
             value={quantity}
             onChange={(e) => setQuantity(Number(e.target.value))}
             className="w-full border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+          />
         </div>
 
         <button

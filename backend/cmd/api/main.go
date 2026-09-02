@@ -107,7 +107,8 @@ func main() {
 	outboxRepo := postgres.NewOutboxRepository(db)
 	stockRepo := postgres.NewStockRepository(db, outboxRepo)
 	reserveSvc := service.NewReserveService(stockRepo, rdb, logger)
-	reserveHandler := handler.NewReserveHandler(reserveSvc, logger)
+	reserveLogRepo := postgres.NewReserveLogRepository(db)
+	reserveHandler := handler.NewReserveHandler(reserveSvc, reserveLogRepo, logger)
 
 	// --- Gin ---
 	r := gin.Default()
@@ -123,7 +124,8 @@ func main() {
 			"service": "inventory-api",
 		})
 	})
-	r.POST("/api/v1/reserve", reserveHandler.Reserve)
+	r.POST("/api/v1/reservations", reserveHandler.Reserve)
+	r.GET("/api/v1/reservations", reserveHandler.GetReservations)
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
