@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
-	"github.com/I000000/InventoryManagement/internal/repository/postgres"
+	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -15,13 +15,13 @@ import (
 
 type ReserveHandler struct {
 	reserveService service.ReserveService
-	reserveLogRepo *postgres.ReserveLogRepository
+	reserveLogRepo repository.ReserveLogRepository
 	logger         *zap.Logger
 }
 
 func NewReserveHandler(
 	svc service.ReserveService,
-	reserveLogRepo *postgres.ReserveLogRepository,
+	reserveLogRepo repository.ReserveLogRepository,
 	logger *zap.Logger,
 ) *ReserveHandler {
 	return &ReserveHandler{

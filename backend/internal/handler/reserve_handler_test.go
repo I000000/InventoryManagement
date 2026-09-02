@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/mocks"
-	"github.com/I000000/InventoryManagement/internal/repository/postgres"
+	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -18,11 +19,25 @@ import (
 	"go.uber.org/zap"
 )
 
+// mockReserveLogRepo — реализует интерфейс repository.ReserveLogRepository
+type mockReserveLogRepo struct{}
+
+func (m *mockReserveLogRepo) Insert(ctx context.Context, productID string, quantity int, requestID, userID, status string, errMsg *string) error {
+	return nil
+}
+
+func (m *mockReserveLogRepo) GetRecent(ctx context.Context, limit int) ([]domain.ReserveLogEntry, error) {
+	return nil, nil
+}
+
+// Проверяем, что мок реализует интерфейс
+var _ repository.ReserveLogRepository = (*mockReserveLogRepo)(nil)
+
 func TestReserveHandler_Reserve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	logger := zap.NewNop()
-	var mockLogRepo *postgres.ReserveLogRepository = nil
+	mockRepo := &mockReserveLogRepo{}
 
 	tests := []struct {
 		name           string
@@ -135,7 +150,7 @@ func TestReserveHandler_Reserve(t *testing.T) {
 				tt.setupMock(mockSvc)
 			}
 
-			h := NewReserveHandler(mockSvc, mockLogRepo, logger)
+			h := NewReserveHandler(mockSvc, mockRepo, logger)
 
 			body, _ := json.Marshal(tt.requestBody)
 			req := httptest.NewRequest("POST", "/api/v1/reservations", bytes.NewReader(body))
