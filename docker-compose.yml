@@ -282,6 +282,20 @@ services:
     profiles:
       - loadtest
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ims_frontend
+    ports:
+      - "3001:3000"
+    depends_on:
+      inventory-api:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
 volumes:
   ims_pg_data:
   ims_redis_data:
