@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel"
@@ -36,13 +37,17 @@ func NewProducer(brokers []string, topic string, logger *zap.Logger) (service.Ev
 	return &kafkaProducer{
 		producer: producer,
 		topic:    topic,
-		logger:   logger,
+		logger:   logger.With(zap.String("service", "kafka-producer"), zap.String("topic", topic)),
 	}, nil
 }
 
 func (p *kafkaProducer) SendStockReservedEvent(ctx context.Context, event domain.StockReservedEvent) error {
+	requestID := middleware.GetRequestIDFromContext(ctx)
+	logger := p.logger.With(zap.String("request_id", requestID))
+
 	data, err := json.Marshal(event)
 	if err != nil {
+		logger.Error("failed to marshal event", zap.Error(err))
 		return fmt.Errorf("marshal event: %w", err)
 	}
 
@@ -62,15 +67,22 @@ func (p *kafkaProducer) SendStockReservedEvent(ctx context.Context, event domain
 		})
 	}
 
+	if requestID != "" {
+		msg.Headers = append(msg.Headers, sarama.RecordHeader{
+			Key:   []byte("X-Request-ID"),
+			Value: []byte(requestID),
+		})
+	}
+
 	partition, offset, err := p.producer.SendMessage(msg)
 	if err != nil {
-		p.logger.Error("failed to send Kafka message",
+		logger.Error("failed to send Kafka message",
 			zap.String("product_id", event.ProductID),
 			zap.Error(err),
 		)
 		return fmt.Errorf("send message: %w", err)
 	}
-	p.logger.Debug("sent Kafka message",
+	logger.Debug("sent Kafka message",
 		zap.String("product_id", event.ProductID),
 		zap.Int32("partition", partition),
 		zap.Int64("offset", offset),

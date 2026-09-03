@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/metrics"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/repository"
@@ -33,6 +34,9 @@ func NewReserveService(
 }
 
 func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest) (domain.ReserveResponse, error) {
+	requestID := middleware.GetRequestIDFromContext(ctx)
+	logger := s.logger.With(zap.String("request_id", requestID))
+
 	metrics.ActiveReservations.Inc()
 	defer metrics.ActiveReservations.Dec()
 
@@ -65,10 +69,16 @@ func (s *reserveService) Reserve(ctx context.Context, req domain.ReserveRequest)
 
 	newAvailable, err := s.redis.DecrBy(ctx, "stock:"+req.ProductID, int64(req.Quantity)).Result()
 	if err != nil {
-		s.logger.Warn("failed to update stock cache", zap.String("product_id", req.ProductID), zap.Error(err))
+		logger.Warn("failed to update stock cache",
+			zap.String("product_id", req.ProductID),
+			zap.Error(err),
+		)
 	} else {
 		s.redis.Expire(ctx, "stock:"+req.ProductID, 5*time.Minute)
-		s.logger.Debug("stock cache updated", zap.String("product_id", req.ProductID), zap.Int64("new_available", newAvailable))
+		logger.Debug("stock cache updated",
+			zap.String("product_id", req.ProductID),
+			zap.Int64("new_available", newAvailable),
+		)
 	}
 
 	return resp, nil

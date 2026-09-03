@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/I000000/InventoryManagement/internal/repository"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/I000000/InventoryManagement/internal/websocket"
@@ -37,14 +38,25 @@ func NewReserveHandler(
 }
 
 func (h *ReserveHandler) Reserve(c *gin.Context) {
+	requestID := middleware.GetRequestIDFromGin(c)
+	ctx := context.WithValue(c.Request.Context(), middleware.RequestIDKey, requestID)
+
 	var req domain.ReserveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.logger.Warn("invalid request body", zap.Error(err))
+		h.logger.Warn("invalid request body",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx := c.Request.Context()
+	h.logger.Debug("reserve request",
+		zap.String("request_id", requestID),
+		zap.String("product_id", req.ProductID),
+		zap.Int("quantity", req.Quantity),
+	)
+
 	resp, err := h.reserveService.Reserve(ctx, req)
 
 	// Определяем статус и сообщение для лога
@@ -75,7 +87,10 @@ func (h *ReserveHandler) Reserve(c *gin.Context) {
 	go func() {
 		logCtx := context.Background()
 		if err := h.reserveLogRepo.Insert(logCtx, req.ProductID, req.Quantity, req.RequestID, "", status, errMsg); err != nil {
-			h.logger.Error("failed to insert reserve log", zap.Error(err))
+			h.logger.Error("failed to insert reserve log",
+				zap.String("request_id", requestID),
+				zap.Error(err),
+			)
 		} else {
 			// Отправляем событие всем клиентам
 			h.hub.Broadcast(websocket.Message{
@@ -88,6 +103,7 @@ func (h *ReserveHandler) Reserve(c *gin.Context) {
 				},
 			})
 			h.logger.Debug("Broadcasting new reservation via WebSocket",
+				zap.String("request_id", requestID),
 				zap.String("product_id", req.ProductID),
 				zap.String("status", status),
 			)
@@ -98,25 +114,64 @@ func (h *ReserveHandler) Reserve(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrProductNotFound):
+			h.logger.Info("product not found",
+				zap.String("request_id", requestID),
+				zap.String("product_id", req.ProductID),
+			)
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+
 		case errors.Is(err, service.ErrNotEnoughStock):
+			h.logger.Info("not enough stock",
+				zap.String("request_id", requestID),
+				zap.String("product_id", req.ProductID),
+				zap.Int("quantity", req.Quantity),
+			)
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+
 		case errors.Is(err, service.ErrDuplicateRequest):
+			h.logger.Info("duplicate request",
+				zap.String("request_id", requestID),
+				zap.String("product_id", req.ProductID),
+			)
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+
 		case errors.Is(err, service.ErrVersionConflict):
+			h.logger.Info("version conflict",
+				zap.String("request_id", requestID),
+				zap.String("product_id", req.ProductID),
+			)
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+
 		case errors.Is(err, context.DeadlineExceeded):
+			h.logger.Warn("request timeout",
+				zap.String("request_id", requestID),
+				zap.String("product_id", req.ProductID),
+			)
 			c.JSON(http.StatusRequestTimeout, gin.H{"error": "request timeout"})
+
 		default:
+			h.logger.Error("unexpected error",
+				zap.String("request_id", requestID),
+				zap.Error(err),
+				zap.String("product_id", req.ProductID),
+			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		}
 		return
 	}
 
+	// Успешный ответ
+	h.logger.Debug("reservation successful",
+		zap.String("request_id", requestID),
+		zap.String("product_id", req.ProductID),
+		zap.Int("reserved", resp.Reserved),
+	)
 	c.JSON(http.StatusOK, resp)
 }
 
 func (h *ReserveHandler) GetReservations(c *gin.Context) {
+	requestID := middleware.GetRequestIDFromGin(c)
+
 	limit := 20
 	if l := c.Query("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
@@ -126,7 +181,10 @@ func (h *ReserveHandler) GetReservations(c *gin.Context) {
 
 	entries, err := h.reserveLogRepo.GetRecent(c.Request.Context(), limit)
 	if err != nil {
-		h.logger.Error("failed to get reserve log", zap.Error(err))
+		h.logger.Error("failed to get reserve log",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get reservations"})
 		return
 	}

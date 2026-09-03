@@ -29,7 +29,7 @@ func NewHub(logger *zap.Logger) *Hub {
 		broadcast:  make(chan Message),
 		register:   make(chan *websocket.Conn),
 		unregister: make(chan *websocket.Conn),
-		logger:     logger,
+		logger:     logger.With(zap.String("service", "websocket-hub")),
 	}
 }
 

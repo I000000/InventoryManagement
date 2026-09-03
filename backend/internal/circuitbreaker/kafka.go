@@ -9,6 +9,8 @@ import (
 
 // NewKafkaCircuitBreaker создаёт Circuit Breaker для отправки в Kafka
 func NewKafkaCircuitBreaker(logger *zap.Logger) *gobreaker.CircuitBreaker {
+	logger = logger.With(zap.String("service", "circuit-breaker"))
+
 	settings := gobreaker.Settings{
 		Name:        "KafkaProducer",
 		MaxRequests: 3,
@@ -18,7 +20,6 @@ func NewKafkaCircuitBreaker(logger *zap.Logger) *gobreaker.CircuitBreaker {
 			return err == nil
 		},
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
-			// Логируем смену состояния
 			logger.Info("Circuit Breaker state changed",
 				zap.String("name", name),
 				zap.String("from", from.String()),

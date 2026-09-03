@@ -12,6 +12,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/config"
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/kafka"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/I000000/InventoryManagement/internal/repository/postgres"
 	"github.com/I000000/InventoryManagement/internal/service"
 	"github.com/I000000/InventoryManagement/internal/tracing"
@@ -25,8 +26,12 @@ import (
 
 func main() {
 	cfg := config.Load()
+
+	// --- Логгер ---
 	logger, _ := zap.NewProduction()
 	defer func() { _ = logger.Sync() }()
+
+	logger = logger.With(zap.String("service", "outbox-worker"))
 
 	// --- Трассировка ---
 	shutdown, err := tracing.InitTracer("outbox-worker")
@@ -104,6 +109,13 @@ func processOutbox(ctx context.Context, outboxRepo *postgres.OutboxRepository, p
 }
 
 func processEvent(ctx context.Context, event postgres.OutboxEvent, producer service.EventProducer, logger *zap.Logger, cb *gobreaker.CircuitBreaker) error {
+	// Восстанавливаем request_id из записи outbox
+	if event.RequestID != "" {
+		ctx = context.WithValue(ctx, middleware.RequestIDKey, event.RequestID)
+	}
+	requestID := middleware.GetRequestIDFromContext(ctx)
+	logger = logger.With(zap.String("request_id", requestID))
+
 	if event.EventType != "stock_reserved" {
 		logger.Warn("unknown event type", zap.String("event_type", event.EventType))
 		return nil
@@ -119,6 +131,7 @@ func processEvent(ctx context.Context, event postgres.OutboxEvent, producer serv
 
 	var stockEvent domain.StockReservedEvent
 	if err := json.Unmarshal(event.Payload, &stockEvent); err != nil {
+		logger.Error("failed to unmarshal event", zap.Error(err))
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
@@ -132,6 +145,7 @@ func processEvent(ctx context.Context, event postgres.OutboxEvent, producer serv
 	})
 	if err != nil {
 		span.RecordError(err)
+		logger.Error("failed to send event via circuit breaker", zap.Error(err))
 		return fmt.Errorf("send to Kafka (circuit breaker): %w", err)
 	}
 

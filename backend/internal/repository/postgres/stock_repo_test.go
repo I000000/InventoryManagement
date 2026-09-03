@@ -49,8 +49,8 @@ func TestStockRepository_ReserveTx(t *testing.T) {
 					WithArgs(2, "iphone_15").
 					WillReturnResult(sqlmock.NewResult(0, 1))
 
-				mock.ExpectExec(`INSERT INTO outbox \(event_id, event_type, payload, status, traceparent, tracestate\) VALUES \(\$1, \$2, \$3, 'pending', \$4, \$5\)`).
-					WithArgs("req-123", "stock_reserved", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+				mock.ExpectExec(`INSERT INTO outbox \(event_id, event_type, payload, status, traceparent, tracestate, request_id\) VALUES \(\$1, \$2, \$3, 'pending', \$4, \$5, \$6\)`).
+					WithArgs("req-123", "stock_reserved", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 
 				mock.ExpectCommit()
@@ -78,10 +78,12 @@ func TestStockRepository_ReserveTx(t *testing.T) {
 					WHERE product_id = \$2 AND total_count - reserved_count >= \$1`).
 					WithArgs(1, "unknown").
 					WillReturnResult(sqlmock.NewResult(0, 0))
+
 				rows := sqlmock.NewRows([]string{"exists"}).AddRow(false)
 				mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM stocks WHERE product_id=\$1\)`).
 					WithArgs("unknown").
 					WillReturnRows(rows)
+
 				mock.ExpectRollback()
 			},
 			expectedResp: domain.ReserveResponse{},
@@ -103,10 +105,12 @@ func TestStockRepository_ReserveTx(t *testing.T) {
 					WHERE product_id = \$2 AND total_count - reserved_count >= \$1`).
 					WithArgs(100, "iphone_15").
 					WillReturnResult(sqlmock.NewResult(0, 0))
+
 				rows := sqlmock.NewRows([]string{"exists"}).AddRow(true)
 				mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM stocks WHERE product_id=\$1\)`).
 					WithArgs("iphone_15").
 					WillReturnRows(rows)
+
 				mock.ExpectRollback()
 			},
 			expectedResp: domain.ReserveResponse{},
@@ -128,6 +132,7 @@ func TestStockRepository_ReserveTx(t *testing.T) {
 					WHERE product_id = \$2 AND total_count - reserved_count >= \$1`).
 					WithArgs(1, "iphone_15").
 					WillReturnError(errors.New("update failed"))
+
 				mock.ExpectRollback()
 			},
 			expectedResp: domain.ReserveResponse{},

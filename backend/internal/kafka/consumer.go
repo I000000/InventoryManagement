@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/I000000/InventoryManagement/internal/domain"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -41,7 +42,7 @@ func NewConsumer(brokers []string, groupID string, topic string, logger *zap.Log
 	return &Consumer{
 		consumer:    consumer,
 		topic:       topic,
-		logger:      logger,
+		logger:      logger.With(zap.String("service", "kafka-consumer"), zap.String("topic", topic)),
 		workerCount: wc,
 	}, nil
 }
@@ -84,11 +85,9 @@ func (c *Consumer) Setup(sarama.ConsumerGroupSession) error { return nil }
 func (c *Consumer) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
 func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	// Канал для сообщений (буферизированный)
 	msgChan := make(chan *sarama.ConsumerMessage, c.workerCount*2)
 	var wg sync.WaitGroup
 
-	// Запускаем воркеров
 	for i := 0; i < c.workerCount; i++ {
 		wg.Add(1)
 		go func() {
@@ -99,36 +98,46 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 		}()
 	}
 
-	// Читаем сообщения и отправляем в канал
 	for msg := range claim.Messages() {
 		msgChan <- msg
 	}
 
-	// Закрываем канал и ждём завершения воркеров
 	close(msgChan)
 	wg.Wait()
 	return nil
 }
 
 func (c *Consumer) processMessage(session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
-	// Извлекаем контекст из заголовков
 	carrier := propagation.MapCarrier{}
+	var requestID string
+
 	for _, header := range msg.Headers {
-		carrier[string(header.Key)] = string(header.Value)
+		key := string(header.Key)
+		value := string(header.Value)
+		carrier[key] = value
+		if key == "X-Request-ID" {
+			requestID = value
+		}
 	}
+
 	propagator := otel.GetTextMapPropagator()
 	ctx := propagator.Extract(session.Context(), carrier)
 
+	if requestID != "" {
+		ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+	}
+
+	logger := c.logger.With(zap.String("request_id", requestID))
+
 	var event domain.StockReservedEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
-		c.logger.Error("unmarshal event", zap.Error(err))
+		logger.Error("unmarshal event", zap.Error(err))
 		session.MarkMessage(msg, "")
 		return
 	}
 
 	if err := c.handler(ctx, event); err != nil {
-		c.logger.Error("handle event failed", zap.Error(err))
-		// Не коммитим сообщение при ошибке — оно будет обработано повторно
+		logger.Error("handle event failed", zap.Error(err))
 		return
 	}
 

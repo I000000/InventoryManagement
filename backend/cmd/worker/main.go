@@ -11,6 +11,7 @@ import (
 	"github.com/I000000/InventoryManagement/internal/config"
 	"github.com/I000000/InventoryManagement/internal/domain"
 	"github.com/I000000/InventoryManagement/internal/kafka"
+	"github.com/I000000/InventoryManagement/internal/middleware"
 	"github.com/I000000/InventoryManagement/internal/repository/clickhouse"
 	"github.com/I000000/InventoryManagement/internal/tracing"
 	"go.uber.org/zap"
@@ -24,6 +25,8 @@ func main() {
 	// --- Логгер ---
 	logger, _ := zap.NewProduction()
 	defer func() { _ = logger.Sync() }()
+
+	logger = logger.With(zap.String("service", "stock-worker"))
 
 	// --- Трассировка ---
 	shutdown, err := tracing.InitTracer("stock-worker")
@@ -81,6 +84,9 @@ func main() {
 	defer cancel()
 
 	handler := func(ctx context.Context, event domain.StockReservedEvent) error {
+		requestID := middleware.GetRequestIDFromContext(ctx)
+		logger := logger.With(zap.String("request_id", requestID))
+
 		// Создаём спан для получения из Kafka
 		ctx, span := tracing.TraceKafkaConsume(ctx, cfg.KafkaTopic, event.RequestID)
 		defer span.End()
@@ -88,7 +94,6 @@ func main() {
 		logger.Info("Received event from Kafka",
 			zap.String("product_id", event.ProductID),
 			zap.Int("quantity", event.Quantity),
-			zap.String("request_id", event.RequestID),
 		)
 
 		// Оборачиваем вставку в ClickHouse в спан

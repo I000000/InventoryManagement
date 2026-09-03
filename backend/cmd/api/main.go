@@ -39,6 +39,8 @@ func main() {
 	}
 	defer func() { _ = logger.Sync() }()
 
+	logger = logger.With(zap.String("service", "inventory-api"))
+
 	// --- Трассировка ---
 	shutdown, err := tracing.InitTracer("inventory-api")
 	if err != nil {
@@ -118,11 +120,15 @@ func main() {
 	// --- Gin ---
 	r := gin.Default()
 
+	// Request ID middleware — самый первый
+	r.Use(middleware.RequestIDMiddleware())
+
+	// WebSocket — до остальных middleware, чтобы не мешать
 	r.GET("/ws", func(c *gin.Context) {
 		websocket.Handler(hub)(c.Writer, c.Request)
 	})
 
-	// Трассировка для HTTP запросов
+	// --- Остальные middleware ---
 	r.Use(otelgin.Middleware("inventory-api"))
 	r.Use(metrics.MetricsMiddleware())
 	r.Use(middleware.RateLimiterMiddleware(rdb, cfg.RateLimit, cfg.RateLimitWindow))

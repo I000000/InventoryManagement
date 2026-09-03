@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     payload JSONB NOT NULL,
     traceparent TEXT,
     tracestate TEXT,
+    request_id VARCHAR(64),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     processed_at TIMESTAMP WITH TIME ZONE,
     status VARCHAR(32) DEFAULT 'pending',
