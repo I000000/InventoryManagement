@@ -28,11 +28,3 @@ type EventProducer interface {
 	SendStockReservedEvent(ctx context.Context, event domain.StockReservedEvent) error
 	Close() error
 }
-
-// ReserveLogRepository — интерфейс для работы с логами резервирований (используется в хендлере)
-//
-//go:generate mockery --name ReserveLogRepository --output ../mocks --outpkg mocks --case underscore
-type ReserveLogRepository interface {
-	Insert(ctx context.Context, productID string, quantity int, requestID, userID, status string, errMsg *string) error
-	GetRecent(ctx context.Context, limit int) ([]any, error) // или используй конкретный тип из postgres
-}

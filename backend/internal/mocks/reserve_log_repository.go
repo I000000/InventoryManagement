@@ -5,6 +5,7 @@ package mocks
 import (
 	context "context"
 
+	domain "github.com/I000000/InventoryManagement/internal/domain"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -14,23 +15,23 @@ type ReserveLogRepository struct {
 }
 
 // GetRecent provides a mock function with given fields: ctx, limit
-func (_m *ReserveLogRepository) GetRecent(ctx context.Context, limit int) ([]interface{}, error) {
+func (_m *ReserveLogRepository) GetRecent(ctx context.Context, limit int) ([]domain.ReserveLogEntry, error) {
 	ret := _m.Called(ctx, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetRecent")
 	}
 
-	var r0 []interface{}
+	var r0 []domain.ReserveLogEntry
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int) ([]interface{}, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, int) ([]domain.ReserveLogEntry, error)); ok {
 		return rf(ctx, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int) []interface{}); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, int) []domain.ReserveLogEntry); ok {
 		r0 = rf(ctx, limit)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]interface{})
+			r0 = ret.Get(0).([]domain.ReserveLogEntry)
 		}
 	}
 
