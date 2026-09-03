@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-config
+  namespace: inventory-system
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_USER: "inventory"
+  DB_NAME: "inventory"
+  DB_SSLMODE: "disable"
+  REDIS_HOST: "redis:6379"
+  REDIS_DB: "0"
+  KAFKA_BROKERS: "kafka:9092"
+  KAFKA_TOPIC: "stock-events"
+  KAFKA_GROUP: "stock-worker-group"
+  CLICKHOUSE_HOST: "clickhouse:9000"
+  CLICKHOUSE_USER: "default"
+  CLICKHOUSE_DB: "analytics"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
+  RATE_LIMIT: "100"
+  RATE_LIMIT_WINDOW: "1s"
+  IDEMPOTENCY_TTL: "5m"
+  STOCK_CACHE_TTL: "5m"
+  KAFKA_CONSUMER_WORKERS: "5"

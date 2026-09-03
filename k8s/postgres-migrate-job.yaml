@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-migrate
+  namespace: inventory-system
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: migrate
+        image: sadsadsadsad/postgres-migrate:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DB_HOST
+          value: "postgres"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: "inventory"
+        - name: DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: inventory-secrets
+              key: DB_PASS
+        - name: DB_NAME
+          value: "inventory"
+        - name: DB_SSLMODE
+          value: "disable"

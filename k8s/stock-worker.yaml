@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stock-worker
+  namespace: inventory-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stock-worker
+  template:
+    metadata:
+      labels:
+        app: stock-worker
+    spec:
+      containers:
+      - name: worker
+        image: sadsadsadsad/stock-worker:latest
+        imagePullPolicy: Always
+        envFrom:
+        - configMapRef:
+            name: inventory-config
+        - secretRef:
+            name: inventory-secrets
+        env:
+        - name: CLICKHOUSE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: inventory-secrets
+              key: CLICKHOUSE_PASS
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stock-worker
+  namespace: inventory-system
+spec:
+  selector:
+    app: stock-worker
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP

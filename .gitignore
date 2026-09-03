@@ -28,6 +28,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+k8s/secrets.yaml
 
 # Docker volumes (локальные данные)
 data/

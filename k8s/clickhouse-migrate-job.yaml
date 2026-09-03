@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-migrate
+  namespace: inventory-system
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: migrate
+        image: sadsadsadsad/clickhouse-migrate:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CLICKHOUSE_HOST
+          value: "clickhouse:9000"
+        - name: CLICKHOUSE_USER
+          value: "default"
+        - name: CLICKHOUSE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: inventory-secrets
+              key: CLICKHOUSE_PASS
+        - name: CLICKHOUSE_DB
+          value: "analytics"
