@@ -63,5 +63,5 @@ loadtest: ## Запустить нагрузочный тест (k6) – пер�
 	$(DOCKER_COMPOSE) --profile loadtest up k6
 
 .PHONY: monitor
-monitor: ## Запустить Prometheus и Grafana
-	$(DOCKER_COMPOSE) up -d prometheus grafana
+monitor: ## Запустить Prometheus, Grafana, Loki и Promtail
+	$(DOCKER_COMPOSE) up -d prometheus grafana loki promtail
