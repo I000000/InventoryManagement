@@ -36,14 +36,10 @@ jobs:
       - name: Install mockery
         run: go install github.com/vektra/mockery/v2@latest
 
-      - name: Generate mocks (check they are up to date)
+      - name: Generate mocks (check if they are up to date)
         run: |
           cd backend
           go generate ./...
-          echo "=== Git status ==="
-          git status
-          echo "=== Git diff ==="
-          git diff
           if ! git diff --quiet; then
             echo "Mocks are not up to date. Run 'go generate ./...' locally and commit the changes."
             exit 1
