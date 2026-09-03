@@ -175,8 +175,8 @@ services:
   stock-worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker
-    container_name: ims_worker
+      dockerfile: Dockerfile.stock-worker
+    container_name: ims_stock_worker
     environment:
       - CLICKHOUSE_HOST=clickhouse:9000
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-inventory}
@@ -207,7 +207,7 @@ services:
   outbox-worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.outbox
+      dockerfile: Dockerfile.outbox-worker
     container_name: ims_outbox_worker
     environment:
       - DB_HOST=postgres
